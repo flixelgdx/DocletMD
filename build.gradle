@@ -1,0 +1,52 @@
+plugins {
+  id 'java-gradle-plugin'
+  id 'maven-publish'
+}
+
+group = 'me.stringdotjar.docletmd'
+version = '0.1.0'
+
+java {
+  toolchain {
+    languageVersion = JavaLanguageVersion.of(21)
+  }
+  sourceCompatibility = JavaVersion.VERSION_17
+  targetCompatibility = JavaVersion.VERSION_17
+}
+
+compileJava {
+  // jdk.javadoc and jdk.compiler are JDK-specific modules not in java.se;
+  // explicitly adding them ensures the compiler can resolve the doclet API.
+  // --release is intentionally absent: ct.sym does not cover jdk.* module APIs,
+  // so restricting the API surface hides valid com.sun.source.* methods.
+  options.compilerArgs += ['--add-modules', 'jdk.javadoc,jdk.compiler']
+}
+
+repositories {
+  mavenCentral()
+}
+
+dependencies {
+  implementation 'com.vladsch.flexmark:flexmark-all:0.64.8'
+
+  testImplementation gradleTestKit()
+  testImplementation platform('org.junit:junit-bom:5.10.2')
+  testImplementation 'org.junit.jupiter:junit-jupiter'
+  testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+gradlePlugin {
+  plugins {
+    docletmd {
+      id = 'me.stringdotjar.docletmd'
+      implementationClass = 'me.stringdotjar.docletmd.DocletMDPlugin'
+    }
+  }
+}
+
+test {
+  useJUnitPlatform()
+  // Make jdk.javadoc available at test runtime so the documentation tool
+  // can be located via ToolProvider in the same JVM.
+  jvmArgs '--add-modules', 'jdk.javadoc,jdk.compiler'
+}

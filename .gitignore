@@ -1,3 +1,8 @@
+# Java
+**/build/**
+.gradle/
+.vscode/
+
 # Compiled class file
 *.class
 
