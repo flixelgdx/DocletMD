@@ -21,6 +21,7 @@
  */
 package me.stringdotjar.docletmd;
 
+import java.util.List;
 import org.gradle.api.Plugin;
 import org.gradle.api.Project;
 import org.gradle.api.plugins.JavaPluginExtension;
@@ -42,7 +43,7 @@ import org.gradle.api.tasks.SourceSet;
  * <pre>{@code
  * plugins {
  *     id 'java'
- *     id 'io.github.docletmd'
+ *     id 'me.stringdotjar.docletmd'
  * }
  *
  * docletmd {
@@ -70,6 +71,7 @@ public final class DocletMDPlugin implements Plugin<Project> {
     ext.getOutputDir().convention(project.getLayout().getBuildDirectory().dir("docletmd"));
     ext.getIncludePrivate().convention(false);
     ext.getSkipEmptyDocs().convention(false);
+    ext.getAdditionalArgs().convention(List.of());
 
     project.getTasks().register(TASK_NAME, DocletMDTask.class, task -> {
       task.setDescription("Generates Docusaurus-ready Markdown from Javadoc comments.");
@@ -79,6 +81,7 @@ public final class DocletMDPlugin implements Plugin<Project> {
       task.getOutputDir().set(ext.getOutputDir());
       task.getIncludePrivate().set(ext.getIncludePrivate());
       task.getSkipEmptyDocs().set(ext.getSkipEmptyDocs());
+      task.getAdditionalArgs().set(ext.getAdditionalArgs());
     });
 
     // When the java plugin is also present, a wire source sets and classpath automatically.

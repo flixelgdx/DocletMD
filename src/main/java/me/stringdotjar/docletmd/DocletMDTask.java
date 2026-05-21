@@ -28,7 +28,10 @@ import java.io.StringWriter;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Stream;
 import javax.tools.DiagnosticCollector;
 import javax.tools.DocumentationTool;
@@ -42,6 +45,7 @@ import org.gradle.api.DefaultTask;
 import org.gradle.api.GradleException;
 import org.gradle.api.file.ConfigurableFileCollection;
 import org.gradle.api.file.DirectoryProperty;
+import org.gradle.api.provider.ListProperty;
 import org.gradle.api.provider.Property;
 import org.gradle.api.tasks.Classpath;
 import org.gradle.api.tasks.Input;
@@ -120,6 +124,18 @@ public abstract class DocletMDTask extends DefaultTask {
   public abstract DirectoryProperty getOutputDir();
 
   /**
+   * Extra flags appended verbatim to the documentation tool invocation.
+   *
+   * <p>Useful for javadoc-level flags like {@code --patch-module} that cannot be
+   * expressed through the typed extension properties. See
+   * {@link DocletMDExtension#getAdditionalArgs()} for details and an example.
+   *
+   * @return the configurable list property
+   */
+  @Input
+  public abstract ListProperty<String> getAdditionalArgs();
+
+  /**
    * Executes the Javadoc documentation tool using {@link DocletMDDoclet}.
    *
    * <p>All {@code .java} files found under {@link #getSourceDirs()} are passed to the
@@ -145,12 +161,28 @@ public abstract class DocletMDTask extends DefaultTask {
     StringWriter toolOutput = new StringWriter();
     DiagnosticCollector<JavaFileObject> diagnostics = new DiagnosticCollector<>();
 
+    boolean isModular = sourceFiles.stream().anyMatch(f -> f.getName().equals("module-info.java"));
+    if (isModular) {
+      getLogger().lifecycle("DocletMD: module-info.java detected, using module path.");
+    }
+
     try (StandardJavaFileManager fm = tool.getStandardFileManager(diagnostics, null, null)) {
       List<File> classpathFiles = getClasspath().getFiles().stream()
           .filter(File::exists)
           .toList();
       if (!classpathFiles.isEmpty()) {
-        fm.setLocation(StandardLocation.CLASS_PATH, classpathFiles);
+        if (isModular) {
+          // When --patch-module is used, the patched JARs must NOT also appear as independent
+          // modules on the module path -- that would cause a split-package error before the
+          // patch is applied. Parse additionalArgs to find any patched paths and exclude them.
+          Set<String> patchedPaths = patchedModulePaths(getAdditionalArgs().get());
+          List<File> modulePath = classpathFiles.stream()
+              .filter(f -> !patchedPaths.contains(f.getAbsolutePath()))
+              .toList();
+          fm.setLocation(StandardLocation.MODULE_PATH, modulePath);
+        } else {
+          fm.setLocation(StandardLocation.CLASS_PATH, classpathFiles);
+        }
       }
 
       Iterable<? extends JavaFileObject> units = fm.getJavaFileObjectsFromFiles(sourceFiles);
@@ -192,7 +224,24 @@ public abstract class DocletMDTask extends DefaultTask {
     if (getSkipEmptyDocs().get()) {
       opts.add("-skipEmptyDocs");
     }
+    opts.addAll(getAdditionalArgs().get());
     return opts;
+  }
+
+  // Parses --patch-module args and returns all absolute file paths that are being patched.
+  // These must be excluded from MODULE_PATH so they don't also appear as separate modules.
+  private static Set<String> patchedModulePaths(List<String> args) {
+    Set<String> paths = new HashSet<>();
+    for (int i = 0; i < args.size() - 1; i++) {
+      if ("--patch-module".equals(args.get(i))) {
+        String spec = args.get(i + 1); // e.g. "gdx=/path/a.jar:/path/b.jar"
+        int eq = spec.indexOf('=');
+        if (eq >= 0) {
+          paths.addAll(Arrays.asList(spec.substring(eq + 1).split(File.pathSeparator)));
+        }
+      }
+    }
+    return paths;
   }
 
   // Recursively collects every .java file under the configured source directories.

@@ -22,6 +22,7 @@
 package me.stringdotjar.docletmd;
 
 import org.gradle.api.file.DirectoryProperty;
+import org.gradle.api.provider.ListProperty;
 import org.gradle.api.provider.Property;
 
 /**
@@ -74,4 +75,26 @@ public abstract class DocletMDExtension {
    * @return the configurable boolean property
    */
   public abstract Property<Boolean> getSkipEmptyDocs();
+
+  /**
+   * Extra flags appended verbatim to the documentation tool invocation.
+   *
+   * <p>Use this for javadoc-level flags that cannot be expressed through the standard
+   * extension properties -- for example {@code --patch-module} to merge a split package
+   * in a JPMS build. These are passed directly after the DocletMD options, so they can
+   * override or augment the tool's module resolution.
+   *
+   * <p>Example for a project where {@code gdx-jnigen-loader} splits the {@code com.badlogic.gdx}
+   * package with {@code gdx}:
+   * <pre>{@code
+   * docletmd {
+   *     additionalArgs = ['--patch-module', 'gdx=/path/to/gdx-jnigen-loader.jar']
+   * }
+   * }</pre>
+   *
+   * <p>Defaults to an empty list.
+   *
+   * @return the configurable list property
+   */
+  public abstract ListProperty<String> getAdditionalArgs();
 }

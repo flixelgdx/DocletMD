@@ -34,6 +34,7 @@ import me.stringdotjar.docletmd.util.MdEscaper;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 import javax.lang.model.element.Element;
 import javax.lang.model.element.ElementKind;
 import javax.lang.model.element.ExecutableElement;
@@ -83,14 +84,19 @@ public final class MarkdownRenderer {
    * @param elements the {@link Elements} utility from the doclet environment
    * @param includePrivate {@code true} to include private and package-private members
    * @param skipEmptyDocs {@code true} to omit members that have no Javadoc comment
+   * @param allTypes all top-level types that will be rendered; used to resolve
+   *     {@code {@link}} references to relative Markdown links
    */
   public MarkdownRenderer(DocTrees trees, Elements elements,
-      boolean includePrivate, boolean skipEmptyDocs) {
+      boolean includePrivate, boolean skipEmptyDocs, List<TypeElement> allTypes) {
     this.trees = trees;
     this.elements = elements;
-    this.inline = new InlineTagRenderer();
     this.includePrivate = includePrivate;
     this.skipEmptyDocs = skipEmptyDocs;
+    Set<String> knownNames = allTypes.stream()
+        .map(t -> t.getQualifiedName().toString())
+        .collect(Collectors.toSet());
+    this.inline = new InlineTagRenderer(elements, knownNames);
   }
 
   /**
@@ -100,6 +106,7 @@ public final class MarkdownRenderer {
    * @return the full Markdown document as a string, never {@code null}
    */
   public String render(TypeElement type) {
+    inline.setCurrentType(type);
     StringBuilder sb = new StringBuilder();
     DocCommentTree classDoc = trees.getDocCommentTree(type);
 
@@ -109,7 +116,12 @@ public final class MarkdownRenderer {
     appendFields(type, sb);
     appendMethods(type, sb);
 
-    return sb.toString();
+    // Normalize trailing spaces on each line, collapse 3+ blank lines to one,
+    // and ensure the file ends with exactly one newline.
+    return sb.toString()
+        .replaceAll("[ \t]+\n", "\n")
+        .replaceAll("\n{3,}", "\n\n")
+        .stripTrailing() + "\n";
   }
 
   // Writes the YAML frontmatter block.
@@ -349,9 +361,13 @@ public final class MarkdownRenderer {
 
   // Renders the first sentence and body of a doc comment to a single Markdown string.
   private String renderBody(DocCommentTree doc) {
-    List<DocTree> combined = new ArrayList<>(doc.getFirstSentence());
-    combined.addAll(doc.getBody());
-    return inline.render(combined).strip();
+    String first = inline.render(doc.getFirstSentence());
+    String body = inline.render(doc.getBody());
+    if (first.isBlank()) return body.strip();
+    if (body.isBlank()) return first.strip();
+    // The Javadoc parser consumes the whitespace token that separates the first sentence
+    // from the body. Re-insert a single space so the text does not run together.
+    return (first + " " + body).strip();
   }
 
   // Returns the text of the @deprecated block tag, or an empty string if absent.
@@ -424,6 +440,7 @@ public final class MarkdownRenderer {
       case ENUM -> "enum";
       case RECORD -> "record";
       case ANNOTATION_TYPE -> "@interface";
+      case CLASS -> "CLASS";
       default -> "";
     };
   }

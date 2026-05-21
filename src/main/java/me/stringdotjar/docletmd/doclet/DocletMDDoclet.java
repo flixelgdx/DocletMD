@@ -117,9 +117,8 @@ public final class DocletMDDoclet implements Doclet {
 
     DocTrees trees = env.getDocTrees();
     Elements elems = env.getElementUtils();
-    MarkdownRenderer renderer = new MarkdownRenderer(trees, elems, includePrivate, skipEmptyDocs);
-
     List<TypeElement> types = collectTopLevelTypes(env);
+    MarkdownRenderer renderer = new MarkdownRenderer(trees, elems, includePrivate, skipEmptyDocs, types);
 
     for (TypeElement type : types) {
       try {
