@@ -65,7 +65,6 @@ Documentation should read like a **beginner-friendly handbook**, not an expert-o
 - Follow `.editorconfig` for formatting.
 - Add comments where either complexity would otherwise be hard to follow, or where code requires import context.
 - Skip Javadoc on trivial, self-explanatory methods (plain getters/setters or something like `calculateTotal()` unless there is subtle behavior).
-- `.java` files should carry the project's standard copyright header (exceptions: `package-info.java`, `module-info.java`).
 - Prefer **American English** in docs.
 - After code changes that affect public behavior or APIs, **update relevant Markdown docs** in the repo.
 

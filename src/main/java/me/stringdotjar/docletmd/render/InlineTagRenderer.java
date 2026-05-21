@@ -1,24 +1,3 @@
-/*
- * Copyright (c) 2026 String
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy
- * of this software and associated documentation files (the "Software"), to deal
- * in the Software without restriction, including without limitation the rights
- * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the Software is
- * furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
- * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
- * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
- * THE SOFTWARE.
- */
 package me.stringdotjar.docletmd.render;
 
 import com.sun.source.doctree.AttributeTree;
@@ -159,8 +138,11 @@ public final class InlineTagRenderer {
         if (!body.contains("\n")) {
           yield MdEscaper.escapeMdx(body);
         }
-        String normalized = body.replaceAll("[ \t]*\\n[ \t]*", " ").strip();
-        yield normalized.isEmpty() ? "" : MdEscaper.escapeMdx(normalized);
+        // Do NOT strip() here. Leading/trailing spaces around tags like <b> or {@link}
+        // are word-boundary separators and must survive to the output.
+        // Only drop the result entirely when it collapsed to pure whitespace.
+        String normalized = body.replaceAll("[ \t]*\\n[ \t]*", " ");
+        yield normalized.isBlank() ? "" : MdEscaper.escapeMdx(normalized);
       }
       case CODE, LITERAL -> {
         String body = ((LiteralTree) node).getBody().getBody();
@@ -227,7 +209,10 @@ public final class InlineTagRenderer {
     String name = tag.getName().toString().toLowerCase();
     return switch (name) {
       case "p" -> "\n\n";
-      case "br", "ul", "ol", "tr" -> "\n";
+      case "br", "ul", "ol" -> "\n";
+      // <tr> must NOT emit "\n", as </tr> already ends the row with "|\n", so adding another
+      // "\n" here would produce a blank line between every table row and break GFM parsing.
+      case "tr" -> "";
       case "pre" -> { inPre = true; yield "\n```java\n"; }
       // Inside a <pre> block, <code> is a no-op; the fenced delimiters are sufficient.
       case "code" -> inPre ? "" : "`";
