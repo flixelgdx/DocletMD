@@ -234,8 +234,16 @@ public final class MarkdownRenderer {
   // Writes a single field entry.
   private void appendField(VariableElement field, StringBuilder sb) {
     DocCommentTree doc = trees.getDocCommentTree(field);
+    String mods = buildModifierPrefix(field);
     String type = simplifyType(field.asType().toString());
-    sb.append("### `").append(type).append(" ").append(field.getSimpleName()).append("`\n\n");
+    String sig = (mods.isEmpty() ? "" : mods + " ") + type + " " + field.getSimpleName();
+    // getConstantValue() returns non-null only for compile-time constants (primitives, String).
+    // getConstantExpression() formats the value correctly: quoted strings, 'c' for chars, etc.
+    Object constantVal = field.getConstantValue();
+    if (constantVal != null) {
+      sig += " = " + elements.getConstantExpression(constantVal);
+    }
+    sb.append("### `").append(sig).append("`\n\n");
 
     if (isDeprecated(field, doc)) {
       appendDeprecatedAdmonition(doc, sb);
@@ -382,15 +390,14 @@ public final class MarkdownRenderer {
     StringBuilder sig = new StringBuilder();
     boolean isCtor = ctorName != null;
 
+    // Modifiers come first (public static final ...), then return type, then name.
+    String mods = buildModifierPrefix(exec);
+    if (!mods.isEmpty()) {
+      sig.append(mods).append(" ");
+    }
     if (!isCtor) {
       sig.append(simplifyType(exec.getReturnType().toString())).append(" ");
     }
-    String modifiers = exec.getModifiers().stream()
-      .map(Modifier::toString)
-      .filter(s -> !s.equals("abstract")) // Omit "abstract" since it's redundant with interfaces.
-      .collect(Collectors.joining(" "));
-    if (!modifiers.endsWith(" ")) modifiers.concat(" ");
-    sig.append(modifiers);
     sig.append(isCtor ? ctorName : exec.getSimpleName());
     sig.append("(");
 
@@ -410,6 +417,18 @@ public final class MarkdownRenderer {
     }
     sig.append(")");
     return sig.toString();
+  }
+
+  // Returns a space-separated modifier string in canonical Java order (public/protected/private,
+  // then static, abstract, final, synchronized, etc.). Omits "abstract" because it is implied
+  // by the interface or class declaration and adds noise to every method heading.
+  // Modifier.compareTo() follows enum declaration order, which matches the JLS modifier order.
+  private static String buildModifierPrefix(Element e) {
+    return e.getModifiers().stream()
+        .filter(m -> m != Modifier.ABSTRACT)
+        .sorted()
+        .map(Modifier::toString)
+        .collect(Collectors.joining(" "));
   }
 
   // Strips package prefixes from type names so signatures stay readable.

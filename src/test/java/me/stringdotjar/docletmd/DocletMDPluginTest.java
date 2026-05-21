@@ -71,7 +71,7 @@ class DocletMDPluginTest {
     assertTrue(content.contains("`com.example.Calculator`"), "Missing qualified name");
     assertTrue(content.contains("A simple calculator"), "Missing class description");
     assertTrue(content.contains("**Since:** 1.0"), "Missing @since tag");
-    assertTrue(content.contains("### `int add(int a, int b)`"), "Missing method heading");
+    assertTrue(content.contains("### `public int add(int a, int b)`"), "Missing method heading");
     assertTrue(content.contains("Adds two integers"), "Missing method description");
     assertTrue(content.contains("| `a` |"), "Missing param table entry for 'a'");
     assertTrue(content.contains("| `b` |"), "Missing param table entry for 'b'");

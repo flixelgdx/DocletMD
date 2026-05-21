@@ -18,6 +18,7 @@ import java.util.stream.Collectors;
 import javax.lang.model.element.Element;
 import javax.lang.model.element.ElementKind;
 import javax.lang.model.element.ExecutableElement;
+import javax.lang.model.element.Modifier;
 import javax.lang.model.element.TypeElement;
 import javax.lang.model.element.VariableElement;
 import javax.lang.model.util.Elements;
@@ -402,6 +403,7 @@ public final class InlineTagRenderer {
 
   // Converts an element to the Docusaurus anchor that would be generated for its
   // section heading, using the same github-slugger rules Docusaurus applies.
+  // The heading text must exactly mirror what MarkdownRenderer writes into the ### heading.
   private String elementToAnchor(Element el) {
     String heading;
     if (el instanceof ExecutableElement exec) {
@@ -411,7 +413,14 @@ public final class InlineTagRenderer {
           : null;
       heading = buildHeadingSig(exec, ctorName);
     } else if (el instanceof VariableElement var) {
-      heading = simplifyType(var.asType().toString()) + " " + var.getSimpleName();
+      // Mirror appendField(): modifiers + type + name [+ " = " + constant].
+      String mods = buildModifierPrefix(var);
+      heading = (mods.isEmpty() ? "" : mods + " ")
+          + simplifyType(var.asType().toString()) + " " + var.getSimpleName();
+      Object val = var.getConstantValue();
+      if (val != null && elements != null) {
+        heading += " = " + elements.getConstantExpression(val);
+      }
     } else {
       return null;
     }
@@ -419,9 +428,14 @@ public final class InlineTagRenderer {
   }
 
   // Builds the method/constructor signature string that MarkdownRenderer uses as the
-  // section heading. Must mirror MarkdownRenderer.buildSignature() exactly.
+  // section heading. Must mirror MarkdownRenderer.buildSignature() exactly,
+  // including the modifier prefix added when modifiers were introduced.
   private static String buildHeadingSig(ExecutableElement exec, String ctorName) {
     StringBuilder sig = new StringBuilder();
+    String mods = buildModifierPrefix(exec);
+    if (!mods.isEmpty()) {
+      sig.append(mods).append(" ");
+    }
     if (ctorName == null) {
       sig.append(simplifyType(exec.getReturnType().toString())).append(" ");
     }
@@ -439,6 +453,17 @@ public final class InlineTagRenderer {
     }
     sig.append(")");
     return sig.toString();
+  }
+
+  // Returns a space-separated modifier string in canonical Java order, omitting "abstract"
+  // because it is implied by the enclosing type. Must stay identical to the equivalent
+  // helper in MarkdownRenderer so that anchor slugs match section headings.
+  private static String buildModifierPrefix(Element e) {
+    return e.getModifiers().stream()
+        .filter(m -> m != Modifier.ABSTRACT)
+        .sorted()
+        .map(Modifier::toString)
+        .collect(Collectors.joining(" "));
   }
 
   // Produces the Docusaurus anchor ID for a heading string, matching the github-slugger
