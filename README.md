@@ -23,7 +23,7 @@ pluginManagement {
     resolutionStrategy {
         eachPlugin {
             if (requested.id.id == 'me.stringdotjar.docletmd') {
-                useModule('com.github.flixelgdx.DocletMD:DocletMD:0.1.0')
+                useModule('com.github.flixelgdx.DocletMD:docletmd:0.1.0')
             }
         }
     }
