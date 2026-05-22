@@ -23,14 +23,14 @@ pluginManagement {
     resolutionStrategy {
         eachPlugin {
             if (requested.id.id == 'me.stringdotjar.docletmd') {
-                useModule('com.github.flixelgdx.DocletMD:docletmd:0.1.0')
+                useModule('com.github.flixelgdx.DocletMD:docletmd:0.1.1')
             }
         }
     }
 }
 ```
 
-> Replace `0.1.0` with any released tag from the [releases page](https://github.com/flixelgdx/DocletMD/releases),
+> Replace `0.1.1` with any released tag from the [releases page](https://github.com/flixelgdx/DocletMD/releases),
 > or use a full commit hash for a snapshot build.
 
 Then apply the plugin alongside the `java` plugin in your `build.gradle`:
@@ -39,7 +39,7 @@ Then apply the plugin alongside the `java` plugin in your `build.gradle`:
 ```groovy
 plugins {
     id 'java'
-    id 'me.stringdotjar.docletmd' version '0.1.0'
+    id 'me.stringdotjar.docletmd' version '0.1.1'
 }
 ```
 
@@ -54,7 +54,7 @@ buildscript {
         maven { url 'https://jitpack.io' }
     }
     dependencies {
-        classpath 'com.github.flixelgdx.DocletMD:DocletMD:0.1.0'
+        classpath 'com.github.flixelgdx.DocletMD:docletmd:0.1.1'
     }
 }
 
@@ -117,6 +117,49 @@ Every file contains:
   - Parameter table (`@param` tags).
   - Return value (`@return` tag).
   - Throws table (`@throws` / `@exception` tags).
+
+## Member-type markers
+
+Every member heading (field, constructor, method) is preceded by an HTML comment that identifies its kind:
+
+```
+<!-- docletmd:field -->
+<!-- docletmd:field:static -->
+<!-- docletmd:field:constant -->
+<!-- docletmd:constructor -->
+<!-- docletmd:method -->
+<!-- docletmd:method:static -->
+```
+
+`field:constant` is emitted for `static final` fields that have a compile-time constant value (primitives and `String`).
+
+These comments are **invisible** in all standard Markdown renderers and Docusaurus itself, so generated pages look correct with or without any additional tooling. A Docusaurus remark plugin can read the markers and apply styling -- for example, color-coding headings by member kind -- without modifying the plugin or the generated files.
+
+### Using the markers in a remark plugin
+
+The markers appear in the raw Markdown AST as `html` nodes immediately before each `heading` node of depth 3. A minimal remark plugin that processes them looks like this:
+
+```js
+// remark-docletmd-colors.js
+export default function remarkDocletmdColors() {
+  return (tree) => {
+    const { visit } = require('unist-util-visit');
+    visit(tree, 'html', (node, index, parent) => {
+      const match = node.value.match(/^<!-- docletmd:(\S+) -->$/);
+      if (!match || !parent) return;
+      const kind = match[1]; // e.g. "method", "field:static", "constructor"
+      const next = parent.children[index + 1];
+      if (next?.type === 'heading' && next.depth === 3) {
+        next.data ??= {};
+        next.data.hProperties ??= {};
+        next.data.hProperties.className = `docletmd-${kind.replace(':', '-')}`;
+      }
+    });
+  };
+}
+```
+
+Then add CSS that targets those classes to apply per-kind colors.
 
 ## Docusaurus integration
 

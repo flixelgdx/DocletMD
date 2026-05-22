@@ -376,10 +376,12 @@ public final class InlineTagRenderer {
 
   // Computes the relative Markdown path from the current class's file to the target's file.
   // Both arguments are fully qualified class names (e.g. "me.example.Foo").
+  // The ".md" extension is included so Docusaurus resolves the link as a doc reference
+  // rather than a bare HTML URL, which would 404 on a static site.
   private static String computeRelPath(String currentQual, String targetQual) {
     Path currentDir = Path.of(currentQual.replace('.', '/')).getParent();
     if (currentDir == null) currentDir = Path.of(".");
-    Path targetFile = Path.of(targetQual.replace('.', '/'));
+    Path targetFile = Path.of(targetQual.replace('.', '/') + ".md");
     String rel = currentDir.relativize(targetFile).toString().replace('\\', '/');
     // Ensure a "./" prefix for same-directory or deeper links (Docusaurus requires explicit paths).
     return rel.startsWith("..") ? rel : "./" + rel;
@@ -471,7 +473,7 @@ public final class InlineTagRenderer {
   // collapse and replace spaces with hyphens.
   private static String slugify(String heading) {
     return heading.toLowerCase()
-        .replaceAll("[^a-z0-9\\s-]", " ")
+        .replaceAll("[^a-z0-9\\s-]", "")
         .trim()
         .replaceAll("\\s+", "-");
   }

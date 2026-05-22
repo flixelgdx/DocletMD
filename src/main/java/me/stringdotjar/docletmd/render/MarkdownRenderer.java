@@ -243,6 +243,7 @@ public final class MarkdownRenderer {
     if (constantVal != null) {
       sig += " = " + elements.getConstantExpression(constantVal);
     }
+    sb.append(fieldMarker(field)).append("\n");
     sb.append("### `").append(sig).append("`\n\n");
 
     if (isDeprecated(field, doc)) {
@@ -263,6 +264,7 @@ public final class MarkdownRenderer {
   private void appendExecutable(ExecutableElement exec, String ctorName, StringBuilder sb) {
     DocCommentTree doc = trees.getDocCommentTree(exec);
     String sig = buildSignature(exec, ctorName);
+    sb.append(execMarker(exec, ctorName != null)).append("\n");
     sb.append("### `").append(sig).append("`\n\n");
 
     if (isDeprecated(exec, doc)) {
@@ -417,6 +419,26 @@ public final class MarkdownRenderer {
     }
     sig.append(")");
     return sig.toString();
+  }
+
+  // Returns the HTML comment marker for a field. Invisible in all standard Markdown renderers;
+  // readable by a Docusaurus remark plugin for per-member color coding.
+  private static String fieldMarker(VariableElement field) {
+    Set<Modifier> mods = field.getModifiers();
+    boolean isStatic = mods.contains(Modifier.STATIC);
+    boolean isConstant = isStatic && mods.contains(Modifier.FINAL)
+        && field.getConstantValue() != null;
+    if (isConstant) return "<!-- docletmd:field:constant -->";
+    if (isStatic) return "<!-- docletmd:field:static -->";
+    return "<!-- docletmd:field -->";
+  }
+
+  // Returns the HTML comment marker for a constructor or method.
+  private static String execMarker(ExecutableElement exec, boolean isCtor) {
+    if (isCtor) return "<!-- docletmd:constructor -->";
+    return exec.getModifiers().contains(Modifier.STATIC)
+        ? "<!-- docletmd:method:static -->"
+        : "<!-- docletmd:method -->";
   }
 
   // Returns a space-separated modifier string in canonical Java order (public/protected/private,
