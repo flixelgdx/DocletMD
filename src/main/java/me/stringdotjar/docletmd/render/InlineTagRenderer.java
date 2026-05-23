@@ -131,7 +131,14 @@ public final class InlineTagRenderer {
     return switch (node.getKind()) {
       case TEXT -> {
         String body = ((TextTree) node).getBody();
-        if (inPre) yield body;
+        if (inPre) {
+          // Whitespace-only text nodes inside <pre> are formatting artifacts (e.g.
+          // the newline+indent between the closing } of {@code} and </pre> when
+          // </pre> appears on its own line). Suppress them to avoid empty trailing
+          // lines inside the code fence.
+          if (body.isBlank()) yield "";
+          yield body.replaceAll("[ \t]+\n", "\n");
+        }
         // Javadoc line-wrapping embeds raw newlines + indentation spaces in TextTree nodes.
         // Normalize any newline (and its surrounding horizontal whitespace) to a single space
         // so that list items with inline tags like <b> stay on one line in Markdown.
@@ -143,7 +150,12 @@ public final class InlineTagRenderer {
         // are word-boundary separators and must survive to the output.
         // Only drop the result entirely when it collapsed to pure whitespace.
         String normalized = body.replaceAll("[ \t]*\\n[ \t]*", " ");
-        yield normalized.isBlank() ? "" : MdEscaper.escapeMdx(normalized);
+        // A whitespace-only text node that collapsed from a line break is still a
+        // word-boundary separator between adjacent inline tags (e.g. </b> on one
+        // source line, {@link} on the next). Preserve it as a single space so that
+        // bold/link boundaries like "**Bold** [link](url)" are not collapsed to
+        // "**Bold**[link](url)" which breaks bold rendering in CommonMark.
+        yield normalized.isBlank() ? (body.contains("\n") ? " " : "") : MdEscaper.escapeMdx(normalized);
       }
       case CODE, LITERAL -> {
         String body = ((LiteralTree) node).getBody().getBody();
@@ -173,12 +185,21 @@ public final class InlineTagRenderer {
 
     String text;
     if (labelNodes.isEmpty()) {
-      // Derive display text from the signature: strip leading "#", replace "#" with ".".
-      String bare = sig.startsWith("#") ? sig.substring(1) : sig.replace('#', '.');
-      // Show only simple class name for qualified references (e.g. "pkg.Foo" -> "Foo").
-      int lastDot = bare.lastIndexOf('.');
-      text = lastDot >= 0 && Character.isUpperCase(bare.charAt(lastDot + 1))
-          ? bare.substring(lastDot + 1) : bare;
+      int hash = sig.indexOf('#');
+      if (hash >= 0) {
+        // Member reference (ClassName#method or #method): show just the member name.
+        String memberPart = sig.substring(hash + 1);
+        int paren = memberPart.indexOf('(');
+        text = paren >= 0 ? memberPart.substring(0, paren) : memberPart;
+      } else {
+        // Class-only reference: show simple class name, stripping any package prefix.
+        String bare = sig;
+        int lastDot = bare.lastIndexOf('.');
+        text = lastDot >= 0 && Character.isUpperCase(bare.charAt(lastDot + 1))
+            ? bare.substring(lastDot + 1) : bare;
+        int paren = text.indexOf('(');
+        if (paren >= 0) text = text.substring(0, paren);
+      }
     } else {
       text = render(labelNodes);
     }
@@ -193,12 +214,17 @@ public final class InlineTagRenderer {
     String sig = ref.getSignature();
     String url = resolveUrl(sig);
     if (url != null) {
-      // Use simple class name as display text.
+      // Use simple class name as display text, stripping any parameter list.
       int hash = sig.indexOf('#');
       String classRef = hash >= 0 ? sig.substring(0, hash) : sig;
       int dot = classRef.lastIndexOf('.');
       String simpleName = dot >= 0 ? classRef.substring(dot + 1) : classRef;
-      String member = hash >= 0 ? "." + sig.substring(hash + 1) : "";
+      String memberRaw = hash >= 0 ? sig.substring(hash + 1) : null;
+      String member = "";
+      if (memberRaw != null) {
+        int paren = memberRaw.indexOf('(');
+        member = "." + (paren >= 0 ? memberRaw.substring(0, paren) : memberRaw);
+      }
       return "[" + simpleName + member + "](" + url + ")";
     }
     return "`" + sig.replace('#', '.') + "`";
@@ -478,8 +504,11 @@ public final class InlineTagRenderer {
         .replaceAll("\\s+", "-");
   }
 
-  // Strips package prefixes from type names so signatures stay readable.
+  // Strips package and enclosing-class prefixes, then removes type-use annotations.
+  // Must stay identical to MarkdownRenderer.simplifyType() so anchor slugs match.
   private static String simplifyType(String typeName) {
-    return typeName.replaceAll("([a-z][a-z0-9_]*\\.)+([A-Z])", "$2");
+    String noPrefix = typeName.replaceAll(
+        "(?<![A-Za-z0-9_$])([A-Za-z][A-Za-z0-9_$]*\\.)+([A-Z])", "$2");
+    return noPrefix.replaceAll("@[A-Za-z][A-Za-z0-9_]*(\\([^)]*\\))?\\s*", "").trim();
   }
 }

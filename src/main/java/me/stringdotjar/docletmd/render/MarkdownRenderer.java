@@ -94,11 +94,13 @@ public final class MarkdownRenderer {
     appendConstructors(type, sb);
     appendFields(type, sb);
     appendMethods(type, sb);
+    appendNestedTypes(type, sb);
 
-    // Normalize trailing spaces on each line, collapse 3+ blank lines to one,
-    // and ensure the file ends with exactly one newline.
+    // Normalize trailing spaces, strip extra blank lines before closing fences,
+    // collapse 3+ blank lines to one, and end with exactly one newline.
     return sb.toString()
         .replaceAll("[ \t]+\n", "\n")
+        .replaceAll("\n+```\n", "\n```\n")
         .replaceAll("\n{3,}", "\n\n")
         .stripTrailing() + "\n";
   }
@@ -109,6 +111,8 @@ public final class MarkdownRenderer {
     sb.append("---\n");
     sb.append("title: ").append(simpleName).append("\n");
     sb.append("sidebar_label: ").append(simpleName).append("\n");
+    // Include h4 member headings in the per-page table of contents.
+    sb.append("toc_max_heading_level: 4\n");
     sb.append("---\n\n");
   }
 
@@ -191,7 +195,7 @@ public final class MarkdownRenderer {
     if (visible.isEmpty()) {
       return;
     }
-    sb.append("## Constructors\n\n");
+    sb.append("### Constructors\n\n");
     for (ExecutableElement ctor : visible) {
       appendExecutable(ctor, type.getSimpleName().toString(), sb);
     }
@@ -208,7 +212,7 @@ public final class MarkdownRenderer {
     if (visible.isEmpty()) {
       return;
     }
-    sb.append("## Fields\n\n");
+    sb.append("### Fields\n\n");
     for (VariableElement field : visible) {
       appendField(field, sb);
     }
@@ -225,7 +229,7 @@ public final class MarkdownRenderer {
     if (visible.isEmpty()) {
       return;
     }
-    sb.append("## Methods\n\n");
+    sb.append("### Methods\n\n");
     for (ExecutableElement method : visible) {
       appendExecutable(method, null, sb);
     }
@@ -244,7 +248,7 @@ public final class MarkdownRenderer {
       sig += " = " + elements.getConstantExpression(constantVal);
     }
     sb.append(fieldMarker(field)).append("\n");
-    sb.append("### `").append(sig).append("`\n\n");
+    sb.append("#### `").append(sig).append("`\n\n");
 
     if (isDeprecated(field, doc)) {
       appendDeprecatedAdmonition(doc, sb);
@@ -265,7 +269,7 @@ public final class MarkdownRenderer {
     DocCommentTree doc = trees.getDocCommentTree(exec);
     String sig = buildSignature(exec, ctorName);
     sb.append(execMarker(exec, ctorName != null)).append("\n");
-    sb.append("### `").append(sig).append("`\n\n");
+    sb.append("#### `").append(sig).append("`\n\n");
 
     if (isDeprecated(exec, doc)) {
       appendDeprecatedAdmonition(doc, sb);
@@ -456,7 +460,53 @@ public final class MarkdownRenderer {
   // Strips package prefixes from type names so signatures stay readable.
   // For example: "java.util.List<java.lang.String>" -> "List<String>"
   private String simplifyType(String typeName) {
-    return typeName.replaceAll("([a-z][a-z0-9_]*\\.)+([A-Z])", "$2");
+    // Strip package and enclosing-class prefixes, then remove type-use annotations.
+    // The negative lookbehind prevents matching partial segments inside a word
+    // (e.g. "ig" inside "FlixelAnimateRig" is not a package prefix).
+    String noPrefix = typeName.replaceAll(
+        "(?<![A-Za-z0-9_$])([A-Za-z][A-Za-z0-9_$]*\\.)+([A-Z])", "$2");
+    return noPrefix.replaceAll("@[A-Za-z][A-Za-z0-9_]*(\\([^)]*\\))?\\s*", "").trim();
+  }
+
+  // Writes inline H2 sections for all public/protected nested types.
+  private void appendNestedTypes(TypeElement outerType, StringBuilder sb) {
+    List<TypeElement> nested = ElementFilter.typesIn(outerType.getEnclosedElements()).stream()
+        .filter(this::isVisible)
+        .toList();
+    for (TypeElement nestedType : nested) {
+      appendNestedTypeSection(nestedType, sb);
+    }
+  }
+
+  // Renders a nested type as a self-contained H2 block inside the parent page.
+  private void appendNestedTypeSection(TypeElement type, StringBuilder sb) {
+    DocCommentTree doc = trees.getDocCommentTree(type);
+    String simpleName = type.getSimpleName().toString();
+
+    sb.append("## ").append(simpleName).append("\n\n");
+
+    String kindLabel = kindLabel(type.getKind());
+    if (!kindLabel.isEmpty()) {
+      sb.append("*`").append(kindLabel).append("`*\n\n");
+    }
+
+    sb.append("`").append(type.getQualifiedName()).append("`\n\n");
+
+    if (isDeprecated(type, doc)) {
+      appendDeprecatedAdmonition(doc, sb);
+    }
+
+    if (doc != null) {
+      String desc = renderBody(doc);
+      if (!desc.isBlank()) {
+        sb.append(desc).append("\n\n");
+      }
+    }
+
+    appendMetaTags(doc, sb);
+    appendConstructors(type, sb);
+    appendFields(type, sb);
+    appendMethods(type, sb);
   }
 
   // Returns the human-readable kind label for a type, or empty for plain classes.
