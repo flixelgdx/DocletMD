@@ -111,8 +111,8 @@ public final class MarkdownRenderer {
     sb.append("---\n");
     sb.append("title: ").append(simpleName).append("\n");
     sb.append("sidebar_label: ").append(simpleName).append("\n");
-    // Include h4 member headings in the per-page table of contents.
-    sb.append("toc_max_heading_level: 4\n");
+    // Include h3 member headings in the per-page table of contents.
+    sb.append("toc_max_heading_level: 3\n");
     sb.append("---\n\n");
   }
 
@@ -195,7 +195,7 @@ public final class MarkdownRenderer {
     if (visible.isEmpty()) {
       return;
     }
-    sb.append("### Constructors\n\n");
+    sb.append("## Constructors\n\n");
     for (ExecutableElement ctor : visible) {
       appendExecutable(ctor, type.getSimpleName().toString(), sb);
     }
@@ -212,7 +212,7 @@ public final class MarkdownRenderer {
     if (visible.isEmpty()) {
       return;
     }
-    sb.append("### Fields\n\n");
+    sb.append("## Fields\n\n");
     for (VariableElement field : visible) {
       appendField(field, sb);
     }
@@ -229,7 +229,7 @@ public final class MarkdownRenderer {
     if (visible.isEmpty()) {
       return;
     }
-    sb.append("### Methods\n\n");
+    sb.append("## Methods\n\n");
     for (ExecutableElement method : visible) {
       appendExecutable(method, null, sb);
     }
@@ -248,7 +248,7 @@ public final class MarkdownRenderer {
       sig += " = " + elements.getConstantExpression(constantVal);
     }
     sb.append(fieldMarker(field)).append("\n");
-    sb.append("#### `").append(sig).append("`\n\n");
+    sb.append("### `").append(sig).append("`\n\n");
 
     if (isDeprecated(field, doc)) {
       appendDeprecatedAdmonition(doc, sb);
@@ -269,7 +269,7 @@ public final class MarkdownRenderer {
     DocCommentTree doc = trees.getDocCommentTree(exec);
     String sig = buildSignature(exec, ctorName);
     sb.append(execMarker(exec, ctorName != null)).append("\n");
-    sb.append("#### `").append(sig).append("`\n\n");
+    sb.append("### `").append(sig).append("`\n\n");
 
     if (isDeprecated(exec, doc)) {
       appendDeprecatedAdmonition(doc, sb);
