@@ -494,14 +494,13 @@ public final class InlineTagRenderer {
         .collect(Collectors.joining(" "));
   }
 
-  // Produces the Docusaurus anchor ID for a heading string, matching the github-slugger
-  // algorithm: lowercase, strip non-alphanumeric chars (except spaces/hyphens),
-  // collapse and replace spaces with hyphens.
+  // Produces the Docusaurus anchor ID for a heading string, matching github-slugger v1:
+  // lowercase, replace each space individually with a hyphen, then strip any remaining
+  // non-word (non-[a-zA-Z0-9_]) and non-hyphen characters. Underscores are preserved.
   private static String slugify(String heading) {
     return heading.toLowerCase()
-        .replaceAll("[^a-z0-9\\s-]", "")
-        .trim()
-        .replaceAll("\\s+", "-");
+        .replace(" ", "-")
+        .replaceAll("[^\\w-]", "");
   }
 
   // Strips package and enclosing-class prefixes, then removes type-use annotations.
