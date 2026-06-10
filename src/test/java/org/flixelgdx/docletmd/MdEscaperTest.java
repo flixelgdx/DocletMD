@@ -1,6 +1,6 @@
-package org.flixelgdx;
+package org.flixelgdx.docletmd;
 
-import org.flixelgdx.util.MdEscaper;
+import org.flixelgdx.docletmd.util.MdEscaper;
 import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;

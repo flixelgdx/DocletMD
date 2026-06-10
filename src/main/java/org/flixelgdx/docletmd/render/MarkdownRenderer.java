@@ -1,4 +1,4 @@
-package org.flixelgdx.render;
+package org.flixelgdx.docletmd.render;
 
 import com.sun.source.doctree.DeprecatedTree;
 import com.sun.source.doctree.DocCommentTree;
@@ -9,8 +9,8 @@ import com.sun.source.doctree.SeeTree;
 import com.sun.source.doctree.SinceTree;
 import com.sun.source.doctree.ThrowsTree;
 import com.sun.source.util.DocTrees;
-import org.flixelgdx.util.MdEscaper;
-import org.flixelgdx.util.Signatures;
+import org.flixelgdx.docletmd.util.MdEscaper;
+import org.flixelgdx.docletmd.util.Signatures;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
@@ -111,7 +111,7 @@ public final class MarkdownRenderer {
     StringBuilder sb = new StringBuilder();
     DocCommentTree classDoc = trees.getDocCommentTree(type);
 
-    appendFrontmatter(type, sb);
+    appendFrontmatter(type, classDoc, sb);
     appendClassHeader(type, classDoc, sb);
     appendConstructors(type, sb);
     appendFields(type, sb);
@@ -130,10 +130,16 @@ public final class MarkdownRenderer {
   /**
    * Writes the YAML frontmatter block.
    *
+   * <p>When the type has a doc comment, the first sentence is rendered as plain text and
+   * written as the {@code description} field. This prevents Docusaurus from auto-extracting
+   * the page excerpt from the HTML class header, which would otherwise concatenate the class
+   * name and the "View source" anchor text (for example "FlixelBasicView source").
+   *
    * @param type the type whose simple name is used for {@code title} and {@code sidebar_label}
+   * @param classDoc the type's parsed doc comment, or {@code null} when it has none
    * @param sb the buffer to append to
    */
-  private void appendFrontmatter(TypeElement type, StringBuilder sb) {
+  private void appendFrontmatter(TypeElement type, @Nullable DocCommentTree classDoc, StringBuilder sb) {
     String simpleName = type.getSimpleName().toString();
     sb.append("---\n");
     sb.append("title: ").append(simpleName).append("\n");
@@ -143,7 +149,41 @@ public final class MarkdownRenderer {
     // Suppress Docusaurus's automatic H1 so the plugin's dm-class-header div
     // (which contains the H1 and the inline View Source button) is the only heading.
     sb.append("hide_title: true\n");
+    if (classDoc != null && !classDoc.getFirstSentence().isEmpty()) {
+      String desc = extractPlainDescription(classDoc.getFirstSentence());
+      if (!desc.isBlank()) {
+        // Wrap in double quotes and escape any embedded double quotes and backslashes so
+        // the value is valid YAML regardless of colons, special chars, or angle brackets.
+        sb.append("description: \"")
+            .append(desc.replace("\\", "\\\\").replace("\"", "\\\""))
+            .append("\"\n");
+      }
+    }
     sb.append("---\n\n");
+  }
+
+  /**
+   * Renders the first-sentence doc nodes to a plain-text string suitable for YAML frontmatter.
+   *
+   * <p>The inline renderer is used first to resolve {@code {@link}} and {@code {@code}} tags,
+   * then Markdown formatting, HTML tags, and MDX-escaped characters are stripped so the result
+   * is readable plain text without any markup.
+   *
+   * @param nodes the first-sentence nodes from a {@link DocCommentTree}
+   * @return the stripped plain-text description, never {@code null}
+   */
+  private String extractPlainDescription(List<? extends DocTree> nodes) {
+    return inline.render(nodes)
+        .replaceAll("\\[([^]]*)]\\([^)]*\\)", "$1")  // [text](url) -> text
+        .replaceAll("`([^`]*)`", "$1")                // `code` -> code
+        .replaceAll("\\*\\*([^*]*)\\*\\*", "$1")      // **bold** -> bold
+        .replaceAll("\\*([^*]*)\\*", "$1")            // *italic* -> italic
+        .replaceAll("<[^>]+>", "")                     // strip HTML tags
+        .replace("&lt;", "<").replace("&gt;", ">")    // decode MDX-escaped angle brackets
+        .replace("&#123;", "{").replace("&#125;", "}") // decode MDX-escaped braces
+        .replaceAll("&[a-zA-Z]+;", "")                // strip remaining HTML entities
+        .replaceAll("\\s+", " ")                       // collapse whitespace
+        .strip();
   }
 
   /**
@@ -926,7 +966,6 @@ public final class MarkdownRenderer {
 
     // Type keyword.
     String kindKw = switch (kind) {
-      case CLASS -> "class";
       case INTERFACE -> "interface";
       case ENUM -> "enum";
       case RECORD -> "record";
@@ -981,7 +1020,7 @@ public final class MarkdownRenderer {
 
     // Superclass (skip Object, Record, and Enum<T> since those are implicit).
     TypeMirror superclass = type.getSuperclass();
-    if (superclass != null && superclass.getKind() != TypeKind.NONE) {
+    if (superclass.getKind() != TypeKind.NONE) {
       String superName = Signatures.simplifyType(superclass.toString());
       boolean implicit = superName.equals("Object")
           || superName.equals("Record")

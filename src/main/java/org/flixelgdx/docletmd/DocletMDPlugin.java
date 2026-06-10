@@ -1,4 +1,4 @@
-package org.flixelgdx;
+package org.flixelgdx.docletmd;
 
 import java.util.List;
 import org.gradle.api.Plugin;

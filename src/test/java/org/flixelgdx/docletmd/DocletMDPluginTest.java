@@ -1,4 +1,4 @@
-package org.flixelgdx;
+package org.flixelgdx.docletmd;
 
 import java.io.File;
 import java.nio.file.Files;

@@ -1,7 +1,7 @@
-package org.flixelgdx.doclet;
+package org.flixelgdx.docletmd.doclet;
 
 import com.sun.source.util.DocTrees;
-import org.flixelgdx.render.MarkdownRenderer;
+import org.flixelgdx.docletmd.render.MarkdownRenderer;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -50,8 +50,11 @@ public final class DocletMDDoclet implements Doclet {
   private Path outputDir;
   private boolean includePrivate;
   private boolean skipEmptyDocs;
-  // Optional URL prefix for source links, e.g.
-  // "https://github.com/org/repo/blob/master/module/src/main/java/".
+
+  /**
+   * Optional URL prefix for source links, e.g.
+   * {@code https://github.com/org/repo/blob/master/module/src/main/java/"}.
+   */
   private String sourceBase;
 
   @Override

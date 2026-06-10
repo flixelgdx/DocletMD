@@ -1,6 +1,6 @@
-package org.flixelgdx;
+package org.flixelgdx.docletmd;
 
-import org.flixelgdx.doclet.DocletMDDoclet;
+import org.flixelgdx.docletmd.doclet.DocletMDDoclet;
 import java.io.File;
 import java.io.PrintWriter;
 import java.io.StringWriter;

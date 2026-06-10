@@ -1,4 +1,4 @@
-package org.flixelgdx.render;
+package org.flixelgdx.docletmd.render;
 
 import com.sun.source.doctree.AttributeTree;
 import com.sun.source.doctree.DocTree;
@@ -10,9 +10,10 @@ import com.sun.source.doctree.ReferenceTree;
 import com.sun.source.doctree.StartElementTree;
 import com.sun.source.doctree.TextTree;
 import com.vladsch.flexmark.html2md.converter.FlexmarkHtmlConverter;
-import org.flixelgdx.util.MdEscaper;
-import org.flixelgdx.util.Signatures;
+import org.flixelgdx.docletmd.util.MdEscaper;
+import org.flixelgdx.docletmd.util.Signatures;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -50,24 +51,38 @@ import javax.lang.model.util.Elements;
  */
 public final class InlineTagRenderer {
 
+  /** The {@link Elements} utility from the doclet environment. */
   private final Elements elements;
+
+  /** All qualified class names that have a generated Markdown page. */
   private final Set<String> knownQualifiedNames;
-  // When false (default), links to private/package-private members fall back to code spans
-  // because those members are not rendered and their page anchors do not exist.
+
+  /**
+   * When {@code false} (default), links to private/package-private members fall back to code spans
+   * because those members are not rendered and their page anchors do not exist.
+   */
   private final boolean includePrivate;
+
+  /** The type element currently being rendered. */
   private TypeElement currentType;
 
+  /** Converts unrecognized HTML tags to Markdown. */
   private final FlexmarkHtmlConverter htmlConverter = FlexmarkHtmlConverter.builder().build();
 
-  // True while rendering the content of a <pre> block. Inside a code fence,
-  // {@code} must not add backticks, text must not be MDX-escaped, and
-  // <code>/<strong>/<em> markers are no-ops.
+  /**
+   * {@code true} while rendering the content of a {@code <pre>} block. Inside a code fence,
+   * {@code {@code}} must not add backticks, text must not be MDX-escaped, and
+   * {@code <code>}/{@code <strong>}/{@code <em>} markers are no-ops.
+   */
   private boolean inPre;
-  // Carries the href value across the START_ELEMENT and END_ELEMENT nodes of an <a> tag.
+
+  /** Carries the {@code href} value across the {@code START_ELEMENT} and {@code END_ELEMENT} nodes of an {@code <a>} tag. */
   private String pendingHref;
-  // Tracks whether we are inside a <thead> block; used to count columns for the GFM separator row.
+
+  /** {@code true} when inside a {@code <thead>} block; used to count columns for the GFM separator row. */
   private boolean inTableHeader;
-  // Number of <th> elements seen in the current <thead>; determines separator row width.
+
+  /** Number of {@code <th>} elements seen in the current {@code <thead>}; determines separator row width. */
   private int tableHeaderCols;
 
   /**
@@ -143,10 +158,6 @@ public final class InlineTagRenderer {
       case TEXT -> {
         String body = ((TextTree) node).getBody();
         if (inPre) {
-          // Whitespace-only text nodes inside <pre> are formatting artifacts (e.g.
-          // the newline+indent between the closing } of {@code} and </pre> when
-          // </pre> appears on its own line). Suppress them to avoid empty trailing
-          // lines inside the code fence.
           if (body.isBlank()) yield "";
           yield body.replaceAll("[ \t]+\n", "\n");
         }
@@ -157,15 +168,8 @@ public final class InlineTagRenderer {
         if (!body.contains("\n")) {
           yield MdEscaper.escapeMdx(body);
         }
-        // Do NOT strip() here. Leading/trailing spaces around tags like <b> or {@link}
-        // are word-boundary separators and must survive to the output.
-        // Only drop the result entirely when it collapsed to pure whitespace.
+
         String normalized = body.replaceAll("[ \t]*\\n[ \t]*", " ");
-        // A whitespace-only text node that collapsed from a line break is still a
-        // word-boundary separator between adjacent inline tags (e.g. </b> on one
-        // source line, {@link} on the next). Preserve it as a single space so that
-        // bold/link boundaries like "**Bold** [link](url)" are not collapsed to
-        // "**Bold**[link](url)" which breaks bold rendering in CommonMark.
         yield normalized.isBlank() ? (body.contains("\n") ? " " : "") : MdEscaper.escapeMdx(normalized);
       }
       case CODE, LITERAL -> {
@@ -223,6 +227,7 @@ public final class InlineTagRenderer {
               && Character.isUpperCase(classRef.charAt(lastDot + 1)))
               ? classRef.substring(lastDot + 1) : classRef;
         }
+
         String memberPart = sig.substring(hash + 1);
         int paren = memberPart.indexOf('(');
         if (paren >= 0) {
@@ -230,13 +235,20 @@ public final class InlineTagRenderer {
           String memberName = memberPart.substring(0, paren);
           int closeParen = memberPart.lastIndexOf(')');
           String params = closeParen > paren ? memberPart.substring(paren + 1, closeParen) : "";
-          text = params.isBlank()
-              ? className + "." + memberName + "()"
-              : className + "." + memberName + "(...)";
+          if (params.isBlank()) {
+            text = className + "." + memberName + "()";
+          } else {
+            // Resolve the actual overload so we can show the real simplified param types
+            // instead of a generic "(...)". This also fixes overload disambiguation.
+            Element resolved = resolveLinkedMember(sig, hash, memberPart);
+            text = (resolved instanceof ExecutableElement exec)
+                ? className + "." + memberName + formatParamTypes(exec)
+                : className + "." + memberName + "(...)";
+          }
         } else {
           // No parens in the reference, so this could be a method or a field. Look up the
-          // element so we can append "()" or "(...)" for methods rather than leaving
-          // it bare (which looks like a field reference to readers).
+          // element so we can append "()" or the real param types for methods rather than
+          // leaving it bare (which looks like a field reference to readers).
           text = className + "." + memberPart;
           if (elements != null) {
             String qual = hash == 0
@@ -249,7 +261,7 @@ public final class InlineTagRenderer {
                 if (mem instanceof ExecutableElement exec) {
                   text = exec.getParameters().isEmpty()
                       ? className + "." + memberPart + "()"
-                      : className + "." + memberPart + "(...)";
+                      : className + "." + memberPart + formatParamTypes(exec);
                 }
               }
             }
@@ -317,7 +329,6 @@ public final class InlineTagRenderer {
       // "\n" here would produce a blank line between every table row and break GFM parsing.
       case "tr" -> "";
       case "pre" -> { inPre = true; yield "\n```java\n"; }
-      // Inside a <pre> block, <code> is a no-op; the fenced delimiters are sufficient.
       case "code" -> inPre ? "" : "`";
       case "b", "strong" -> inPre ? "" : "**";
       case "i", "em" -> inPre ? "" : "*";
@@ -328,12 +339,10 @@ public final class InlineTagRenderer {
       case "h5" -> "\n\n##### ";
       case "h6" -> "\n\n###### ";
       case "li" -> "\n- ";
-      // Tables: reset the column counter on <table>, track header columns via <thead>/<th>.
       case "table" -> { tableHeaderCols = 0; yield "\n\n"; }
       case "caption", "tbody" -> "";
       case "thead" -> { inTableHeader = true; yield ""; }
       case "td" -> "| ";
-      // Count each <th> so we know how many separator columns to emit after </thead>.
       case "th" -> { if (inTableHeader) tableHeaderCols++; yield "| "; }
       case "a" -> buildHtmlAnchor(tag);
       default -> convertUnknownTag(tag);
@@ -435,6 +444,64 @@ public final class InlineTagRenderer {
     }
     html.append(">");
     return htmlConverter.convert(html.toString()).strip();
+  }
+
+  /**
+   * Resolves a member reference from a {@code {@link}} signature to its {@link Element}, using
+   * the same overload-disambiguation logic as {@link #findMemberIn} so the display text matches
+   * the anchor that will actually be generated.
+   *
+   * @param sig the full reference signature (e.g. {@code "#load(FlixelSource)"})
+   * @param hash the index of {@code #} in {@code sig}
+   * @param memberPart everything after the {@code #}, including any parameter list
+   * @return the resolved element, or {@code null} when it cannot be resolved
+   */
+  private Element resolveLinkedMember(String sig, int hash, String memberPart) {
+    if (elements == null || currentType == null) return null;
+    TypeElement te;
+    if (hash == 0) {
+      te = currentType;
+    } else {
+      String qual = resolveToQualifiedName(sig.substring(0, hash));
+      te = qual != null ? elements.getTypeElement(qual) : null;
+    }
+    return te != null ? findMemberIn(te, memberPart) : null;
+  }
+
+  /**
+   * Formats the simplified parameter types of a method or constructor as a parenthesized
+   * comma list for use in link display text.
+   *
+   * <p>Only types are included (no parameter names or modifiers), so a link like
+   * {@code {@link #load(FlixelSource)}} renders as
+   * {@code FlixelAssetManager.load(FlixelSource&lt;?&gt;)} rather than
+   * {@code FlixelAssetManager.load(...)}.
+   *
+   * <p>The result is MDX-safe: {@code <} and {@code >} in generic type names are
+   * escaped via {@link MdEscaper#escapeMdx} so they do not confuse MDX's JSX parser.
+   *
+   * @param exec the method or constructor element
+   * @return a string of the form {@code "(Type1, Type2)"}, or {@code "()"} when there are no
+   *     parameters
+   */
+  private static String formatParamTypes(ExecutableElement exec) {
+    List<? extends VariableElement> params = exec.getParameters();
+    if (params.isEmpty()) return "()";
+    // Collapse long parameter lists to avoid cluttering link text.
+    if (params.size() > 2) return "(...)";
+    StringBuilder sb = new StringBuilder("(");
+    for (int i = 0; i < params.size(); i++) {
+      if (i > 0) sb.append(", ");
+      VariableElement p = params.get(i);
+      boolean isLastVararg = exec.isVarArgs() && i == params.size() - 1;
+      String typeName = Signatures.simplifyType(p.asType().toString());
+      if (isLastVararg && typeName.endsWith("[]")) {
+        typeName = typeName.substring(0, typeName.length() - 2) + "...";
+      }
+      sb.append(MdEscaper.escapeMdx(typeName));
+    }
+    sb.append(")");
+    return sb.toString();
   }
 
   /**
@@ -547,19 +614,114 @@ public final class InlineTagRenderer {
   }
 
   /**
-   * Finds the first member of the given type whose simple name matches the reference.
+   * Finds the member of the given type that best matches the reference.
+   *
+   * <p>When the signature includes a parameter list (e.g. {@code "load(FlixelSource)"}),
+   * this method disambiguates overloads by comparing the simplified base type names from the
+   * signature against the actual parameter types from each candidate. If an exact match is found
+   * it is returned; otherwise the first method with the given name is returned as a fallback.
+   *
+   * <p>When there are no parens (e.g. a plain field name), the first element with a matching
+   * simple name is returned, as there is no parameter information to disambiguate on.
    *
    * @param type the type to search
    * @param memberSig the member reference (for example {@code "bar"} or {@code "bar(int)"})
-   * @return the matching member, or {@code null} when none matches
+   * @return the best-matching member, or {@code null} when none matches
    */
   private static Element findMemberIn(TypeElement type, String memberSig) {
     int paren = memberSig.indexOf('(');
     String name = (paren >= 0 ? memberSig.substring(0, paren) : memberSig).trim();
-    for (Element enclosed : type.getEnclosedElements()) {
-      if (enclosed.getSimpleName().toString().equals(name)) return enclosed;
+
+    if (paren < 0) {
+      // No parameter list: plain field or method reference, take the first name match.
+      for (Element enclosed : type.getEnclosedElements()) {
+        if (enclosed.getSimpleName().toString().equals(name)) return enclosed;
+      }
+      return null;
     }
-    return null;
+
+    // Parse the param types from the signature so we can pick the correct overload.
+    int closeParen = memberSig.lastIndexOf(')');
+    String paramStr = (closeParen > paren) ? memberSig.substring(paren + 1, closeParen).trim() : "";
+    List<String> sigParams = paramStr.isBlank() ? List.of() : splitParams(paramStr);
+
+    Element firstMatch = null;
+    for (Element enclosed : type.getEnclosedElements()) {
+      if (!enclosed.getSimpleName().toString().equals(name)) continue;
+      if (firstMatch == null) firstMatch = enclosed;
+      if (enclosed instanceof ExecutableElement exec
+          && exec.getParameters().size() == sigParams.size()
+          && paramsMatch(sigParams, exec)) {
+        return enclosed;
+      }
+    }
+    return firstMatch;
+  }
+
+  /**
+   * Splits a comma-separated parameter type list, respecting nested angle brackets so that
+   * a type like {@code Map<String, Integer>} is not split at the comma inside the generics.
+   *
+   * @param paramStr the raw parameter list string, without surrounding parentheses
+   * @return the individual parameter type tokens, trimmed; never {@code null}
+   */
+  private static List<String> splitParams(String paramStr) {
+    List<String> result = new ArrayList<>();
+    int depth = 0;
+    int start = 0;
+    for (int i = 0; i < paramStr.length(); i++) {
+      char c = paramStr.charAt(i);
+      if (c == '<') depth++;
+      else if (c == '>') depth--;
+      else if (c == ',' && depth == 0) {
+        result.add(paramStr.substring(start, i).trim());
+        start = i + 1;
+      }
+    }
+    result.add(paramStr.substring(start).trim());
+    return result;
+  }
+
+  /**
+   * Returns {@code true} when the base type names from {@code sigParams} match the simplified
+   * parameter types of {@code exec}.
+   *
+   * <p>Comparison is done after stripping generics, array brackets, and varargs from both
+   * sides via {@link #baseTypeName}, so {@code "FlixelSource"} matches
+   * {@code "FlixelSource<?>"}  and {@code "Class"} matches {@code "Class<T>"}.
+   *
+   * @param sigParams the parsed parameter types from the Javadoc reference signature
+   * @param exec the candidate method or constructor
+   * @return {@code true} when each parameter base type matches
+   */
+  private static boolean paramsMatch(List<String> sigParams, ExecutableElement exec) {
+    List<? extends VariableElement> actual = exec.getParameters();
+    for (int i = 0; i < sigParams.size(); i++) {
+      String sigBase = baseTypeName(sigParams.get(i));
+      String actualBase = baseTypeName(Signatures.simplifyType(actual.get(i).asType().toString()));
+      if (!sigBase.equals(actualBase)) return false;
+    }
+    return true;
+  }
+
+  /**
+   * Strips generic type parameters, array brackets, and varargs from a type name, returning
+   * only the raw base name used for overload comparison.
+   *
+   * <p>For example, {@code "FlixelSource<?>"} becomes {@code "FlixelSource"},
+   * {@code "Class<T>"} becomes {@code "Class"}, and {@code "String[]"} becomes {@code "String"}.
+   *
+   * @param type a simplified type name (package-free)
+   * @return the base type name with all suffix decorations removed
+   */
+  private static String baseTypeName(String type) {
+    String t = type.trim();
+    if (t.endsWith("...")) t = t.substring(0, t.length() - 3).trim();
+    int angle = t.indexOf('<');
+    if (angle >= 0) t = t.substring(0, angle).trim();
+    int bracket = t.indexOf('[');
+    if (bracket >= 0) t = t.substring(0, bracket).trim();
+    return t;
   }
 
   /**

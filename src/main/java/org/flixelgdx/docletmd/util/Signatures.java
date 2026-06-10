@@ -1,4 +1,4 @@
-package org.flixelgdx.util;
+package org.flixelgdx.docletmd.util;
 
 import java.util.List;
 import java.util.stream.Collectors;

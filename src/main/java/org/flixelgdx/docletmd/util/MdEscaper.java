@@ -1,4 +1,4 @@
-package org.flixelgdx.util;
+package org.flixelgdx.docletmd.util;
 
 /**
  * Escapes characters that would break MDX rendering in Docusaurus.

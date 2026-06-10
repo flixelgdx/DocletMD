@@ -1,4 +1,4 @@
-package org.flixelgdx;
+package org.flixelgdx.docletmd;
 
 import org.gradle.api.file.DirectoryProperty;
 import org.gradle.api.provider.ListProperty;

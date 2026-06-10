@@ -39,7 +39,7 @@ gradlePlugin {
   plugins {
     docletmd {
       id = 'org.flixelgdx.docletmd'
-      implementationClass = 'org.flixelgdx.DocletMDPlugin'
+      implementationClass = 'org.flixelgdx.docletmd.DocletMDPlugin'
     }
   }
 }
@@ -51,24 +51,14 @@ test {
   jvmArgs '--add-modules', 'jdk.javadoc,jdk.compiler'
 }
 
+tasks.register('collectRuntimeJars', Copy) {
+  from jar
+  from configurations.runtimeClasspath
+  into layout.buildDirectory.dir('runtime-jars')
+  duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+}
+
 // Maven Central publishing via Sonatype Central Portal.
-//
-// To publish locally (to ~/.m2/repository):
-//   ./gradlew publishToMavenLocal
-//
-// To publish to Maven Central staging:
-//   ./gradlew publishAllPublicationsToMavenCentralRepository
-//   Then log in to central.sonatype.com and manually release the deployment.
-//
-// Required entries in ~/.gradle/gradle.properties:
-//   mavenCentralUsername=<user token from central.sonatype.com -> Account -> User Token>
-//   mavenCentralPassword=<token password>
-//   signing.keyId=<last 8 hex chars of your GPG key fingerprint>
-//   signing.password=<GPG key passphrase>
-//   signing.secretKeyRingFile=<absolute path, e.g. /home/you/.gnupg/secring.gpg>
-//
-// Export your secret keyring file if it does not exist yet:
-//   gpg --export-secret-keys > ~/.gnupg/secring.gpg
 mavenPublishing {
   publishToMavenCentral('CENTRAL_PORTAL')
 
