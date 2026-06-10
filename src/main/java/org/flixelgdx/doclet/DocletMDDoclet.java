@@ -1,7 +1,7 @@
-package me.stringdotjar.docletmd.doclet;
+package org.flixelgdx.doclet;
 
 import com.sun.source.util.DocTrees;
-import me.stringdotjar.docletmd.render.MarkdownRenderer;
+import org.flixelgdx.render.MarkdownRenderer;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -31,9 +31,9 @@ import jdk.javadoc.doclet.Reporter;
  * standard Javadoc options:
  *
  * <ul>
- *   <li>{@code -outputDir <path>} -- directory where {@code .md} files are written</li>
- *   <li>{@code -includePrivate} -- flag that includes private and package-private members</li>
- *   <li>{@code -skipEmptyDocs} -- flag that skips members with no Javadoc comment</li>
+ *   <li>{@code -outputDir <path>}: the directory where {@code .md} files are written</li>
+ *   <li>{@code -includePrivate}: includes private and package-private members</li>
+ *   <li>{@code -skipEmptyDocs}: skips members that have no Javadoc comment</li>
  * </ul>
  *
  * <p>The doclet writes one {@code .md} file per top-level type element, organized
@@ -50,6 +50,9 @@ public final class DocletMDDoclet implements Doclet {
   private Path outputDir;
   private boolean includePrivate;
   private boolean skipEmptyDocs;
+  // Optional URL prefix for source links, e.g.
+  // "https://github.com/org/repo/blob/master/module/src/main/java/".
+  private String sourceBase;
 
   @Override
   public void init(Locale locale, Reporter reporter) {
@@ -74,7 +77,11 @@ public final class DocletMDDoclet implements Doclet {
         opt("-includePrivate", "", "Include private and package-private members", 0,
             args -> this.includePrivate = true),
         opt("-skipEmptyDocs", "", "Skip members that have no Javadoc comment", 0,
-            args -> this.skipEmptyDocs = true)
+            args -> this.skipEmptyDocs = true),
+        opt("-sourceBase", "<url>",
+            "Base URL for source links (e.g. https://github.com/org/repo/blob/master/module/src/main/java/); "
+                + "appended with the class file path to build per-page source links", 1,
+            args -> this.sourceBase = args.get(0))
     );
   }
 
@@ -97,7 +104,7 @@ public final class DocletMDDoclet implements Doclet {
     DocTrees trees = env.getDocTrees();
     Elements elems = env.getElementUtils();
     List<TypeElement> types = collectTopLevelTypes(env);
-    MarkdownRenderer renderer = new MarkdownRenderer(trees, elems, includePrivate, skipEmptyDocs, types);
+    MarkdownRenderer renderer = new MarkdownRenderer(trees, elems, includePrivate, skipEmptyDocs, types, sourceBase);
 
     for (TypeElement type : types) {
       try {
@@ -112,8 +119,14 @@ public final class DocletMDDoclet implements Doclet {
     return true;
   }
 
-  // Collects all top-level, included type elements from the doclet environment.
-  // Inner/nested classes are excluded; they appear inside their enclosing class's file.
+  /**
+   * Collects all top-level, included type elements from the doclet environment.
+   *
+   * <p>Inner and nested classes are excluded; they appear inside their enclosing class's file.
+   *
+   * @param env the doclet environment to read included elements from
+   * @return the list of top-level type elements to render
+   */
   private List<TypeElement> collectTopLevelTypes(DocletEnvironment env) {
     List<TypeElement> result = new ArrayList<>();
     for (Element e : env.getIncludedElements()) {
@@ -138,8 +151,14 @@ public final class DocletMDDoclet implements Doclet {
     return result;
   }
 
-  // Writes the rendered Markdown to a file under outputDir, mirroring
-  // the package structure. For example, com.example.Foo -> com/example/Foo.md.
+  /**
+   * Writes the rendered Markdown to a file under {@code outputDir}, mirroring the package
+   * structure. For example, {@code com.example.Foo} becomes {@code com/example/Foo.md}.
+   *
+   * @param type the type whose qualified name determines the output path
+   * @param markdown the rendered Markdown content to write
+   * @throws IOException if the parent directories cannot be created or the file cannot be written
+   */
   private void writeFile(TypeElement type, String markdown) throws IOException {
     String qualName = type.getQualifiedName().toString();
     String relativePath = qualName.replace('.', '/') + ".md";
@@ -148,7 +167,16 @@ public final class DocletMDDoclet implements Doclet {
     Files.writeString(outFile, markdown, StandardCharsets.UTF_8);
   }
 
-  // Builds a Doclet.Option that calls the given handler when processed.
+  /**
+   * Builds an {@link Option} that runs the given handler when the option is processed.
+   *
+   * @param name the option name (for example {@code "-outputDir"})
+   * @param params the human-readable parameter description shown in help output
+   * @param desc the human-readable option description shown in help output
+   * @param argCount the number of arguments the option consumes
+   * @param handler the action to run with the option's arguments when it is processed
+   * @return the configured {@link Option}
+   */
   private static Option opt(String name, String params, String desc, int argCount,
       Consumer<List<String>> handler) {
     return new Option() {

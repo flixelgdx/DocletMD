@@ -1,4 +1,4 @@
-package me.stringdotjar.docletmd.render;
+package org.flixelgdx.render;
 
 import com.sun.source.doctree.AttributeTree;
 import com.sun.source.doctree.DocTree;
@@ -10,7 +10,8 @@ import com.sun.source.doctree.ReferenceTree;
 import com.sun.source.doctree.StartElementTree;
 import com.sun.source.doctree.TextTree;
 import com.vladsch.flexmark.html2md.converter.FlexmarkHtmlConverter;
-import me.stringdotjar.docletmd.util.MdEscaper;
+import org.flixelgdx.util.MdEscaper;
+import org.flixelgdx.util.Signatures;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
@@ -42,7 +43,7 @@ import javax.lang.model.util.Elements;
  *
  * <p>Example usage:
  * <pre>{@code
- * InlineTagRenderer r = new InlineTagRenderer(elements, knownNames);
+ * InlineTagRenderer r = new InlineTagRenderer(elements, knownNames, false);
  * r.setCurrentType(myTypeElement);
  * String markdown = r.render(docCommentTree.getFirstSentence());
  * }</pre>
@@ -51,6 +52,9 @@ public final class InlineTagRenderer {
 
   private final Elements elements;
   private final Set<String> knownQualifiedNames;
+  // When false (default), links to private/package-private members fall back to code spans
+  // because those members are not rendered and their page anchors do not exist.
+  private final boolean includePrivate;
   private TypeElement currentType;
 
   private final FlexmarkHtmlConverter htmlConverter = FlexmarkHtmlConverter.builder().build();
@@ -75,6 +79,7 @@ public final class InlineTagRenderer {
   public InlineTagRenderer() {
     this.elements = null;
     this.knownQualifiedNames = null;
+    this.includePrivate = false;
   }
 
   /**
@@ -82,13 +87,19 @@ public final class InlineTagRenderer {
    *
    * <p>References to classes in {@code knownQualifiedNames} are rendered as relative
    * Markdown links. References to external classes fall back to inline code spans.
+   * Links to private or package-private members fall back to code spans when
+   * {@code includePrivate} is {@code false}, because those members have no generated page anchor.
    *
    * @param elements the {@link Elements} utility from the doclet environment
    * @param knownQualifiedNames all qualified class names that have a generated Markdown page
+   * @param includePrivate {@code true} when private and package-private members are rendered,
+   *     so links to them can be resolved; {@code false} causes such links to degrade gracefully
+   *     to code spans instead of pointing at non-existent anchors
    */
-  public InlineTagRenderer(Elements elements, Set<String> knownQualifiedNames) {
+  public InlineTagRenderer(Elements elements, Set<String> knownQualifiedNames, boolean includePrivate) {
     this.elements = elements;
     this.knownQualifiedNames = knownQualifiedNames;
+    this.includePrivate = includePrivate;
   }
 
   /**
@@ -177,8 +188,21 @@ public final class InlineTagRenderer {
     };
   }
 
-  // Renders a {@link} or {@linkplain} as a Markdown link when the target is a known
-  // generated page, or falls back to an inline code span for external references.
+  /**
+   * Renders a {@code {@link}} or {@code {@linkplain}} as a Markdown link when the target is
+   * a known generated page, or as an inline code span for an external reference.
+   *
+   * <p>When the tag has no explicit label, the display text is derived from the reference:
+   * <ul>
+   *   <li>Class-only reference: the simple class name (for example {@code "FlixelSprite"}).</li>
+   *   <li>Field reference ({@code ClassName#field} or {@code #field}): {@code "ClassName.field"}.</li>
+   *   <li>No-arg method ({@code ClassName#method()} or {@code #method()}): {@code "ClassName.method()"}.</li>
+   *   <li>Method with parameters: {@code "ClassName.method(...)"}.</li>
+   * </ul>
+   *
+   * @param link the {@code {@link}} tag node to render
+   * @return the Markdown link or code span, never {@code null}
+   */
   private String renderLink(LinkTree link) {
     List<? extends DocTree> labelNodes = link.getLabel();
     String sig = link.getReference().getSignature();
@@ -187,15 +211,56 @@ public final class InlineTagRenderer {
     if (labelNodes.isEmpty()) {
       int hash = sig.indexOf('#');
       if (hash >= 0) {
-        // Member reference (ClassName#method or #method): show just the member name.
+        // Member reference: build "ClassName.member" display text.
+        String className;
+        if (hash == 0) {
+          // Same-class reference (#member): use the current type's simple name.
+          className = currentType != null ? currentType.getSimpleName().toString() : "";
+        } else {
+          String classRef = sig.substring(0, hash);
+          int lastDot = classRef.lastIndexOf('.');
+          className = (lastDot >= 0 && lastDot + 1 < classRef.length()
+              && Character.isUpperCase(classRef.charAt(lastDot + 1)))
+              ? classRef.substring(lastDot + 1) : classRef;
+        }
         String memberPart = sig.substring(hash + 1);
         int paren = memberPart.indexOf('(');
-        text = paren >= 0 ? memberPart.substring(0, paren) : memberPart;
+        if (paren >= 0) {
+          // Method reference: check whether params are present between the parens.
+          String memberName = memberPart.substring(0, paren);
+          int closeParen = memberPart.lastIndexOf(')');
+          String params = closeParen > paren ? memberPart.substring(paren + 1, closeParen) : "";
+          text = params.isBlank()
+              ? className + "." + memberName + "()"
+              : className + "." + memberName + "(...)";
+        } else {
+          // No parens in the reference, so this could be a method or a field. Look up the
+          // element so we can append "()" or "(...)" for methods rather than leaving
+          // it bare (which looks like a field reference to readers).
+          text = className + "." + memberPart;
+          if (elements != null) {
+            String qual = hash == 0
+                ? (currentType != null ? currentType.getQualifiedName().toString() : null)
+                : resolveToQualifiedName(sig.substring(0, hash));
+            if (qual != null) {
+              TypeElement te = elements.getTypeElement(qual);
+              if (te != null) {
+                Element mem = findMemberIn(te, memberPart);
+                if (mem instanceof ExecutableElement exec) {
+                  text = exec.getParameters().isEmpty()
+                      ? className + "." + memberPart + "()"
+                      : className + "." + memberPart + "(...)";
+                }
+              }
+            }
+          }
+        }
       } else {
         // Class-only reference: show simple class name, stripping any package prefix.
         String bare = sig;
         int lastDot = bare.lastIndexOf('.');
-        text = lastDot >= 0 && Character.isUpperCase(bare.charAt(lastDot + 1))
+        text = lastDot >= 0 && lastDot + 1 < bare.length()
+            && Character.isUpperCase(bare.charAt(lastDot + 1))
             ? bare.substring(lastDot + 1) : bare;
         int paren = text.indexOf('(');
         if (paren >= 0) text = text.substring(0, paren);
@@ -208,8 +273,13 @@ public final class InlineTagRenderer {
     return url != null ? "[" + text + "](" + url + ")" : "`" + text + "`";
   }
 
-  // Renders a @see reference (ReferenceTree) as a Markdown link when the target is known,
-  // or as an inline code span otherwise.
+  /**
+   * Renders a {@code @see} reference as a Markdown link when the target is a known generated
+   * page, or as an inline code span otherwise.
+   *
+   * @param ref the {@code @see} reference node to render
+   * @return the Markdown link or code span, never {@code null}
+   */
   private String renderReference(ReferenceTree ref) {
     String sig = ref.getSignature();
     String url = resolveUrl(sig);
@@ -230,8 +300,14 @@ public final class InlineTagRenderer {
     return "`" + sig.replace('#', '.') + "`";
   }
 
-  // Maps known HTML start tags to their Markdown equivalents.
-  // Unrecognized tags are converted via flexmark's HTML-to-Markdown converter.
+  /**
+   * Maps a known HTML start tag to its Markdown equivalent.
+   *
+   * <p>Unrecognized tags are converted with flexmark's HTML-to-Markdown converter.
+   *
+   * @param tag the HTML start tag node
+   * @return the Markdown (or pass-through HTML) for the tag, never {@code null}
+   */
   private String renderHtmlStart(StartElementTree tag) {
     String name = tag.getName().toString().toLowerCase();
     return switch (name) {
@@ -264,7 +340,12 @@ public final class InlineTagRenderer {
     };
   }
 
-  // Maps known HTML end tags to their Markdown equivalents.
+  /**
+   * Maps a known HTML end tag to its Markdown equivalent.
+   *
+   * @param tag the HTML end tag node
+   * @return the Markdown for the tag, never {@code null}
+   */
   private String renderHtmlEnd(EndElementTree tag) {
     String name = tag.getName().toString().toLowerCase();
     return switch (name) {
@@ -294,10 +375,20 @@ public final class InlineTagRenderer {
     };
   }
 
-  // Extracts href from an <a> tag. Only absolute URLs (http/https/mailto) become Markdown
-  // links; relative hrefs point to Javadoc-site paths that do not exist in the generated
-  // docs and would produce broken links in Docusaurus. For relative hrefs, the anchor's
-  // text content is rendered as plain text (no "[" emitted, no "](...)" emitted).
+  /**
+   * Extracts the {@code href} from an {@code <a>} tag and begins a Markdown link when it is
+   * absolute.
+   *
+   * <p>Only absolute URLs ({@code http}, {@code https}, or {@code mailto}) become Markdown
+   * links. A relative {@code href} points at a Javadoc-site path that does not exist in the
+   * generated docs and would produce a broken link in Docusaurus, so for a relative
+   * {@code href} the anchor's text content is rendered as plain text (no opening {@code [}
+   * and no closing {@code ](...)}).
+   *
+   * @param tag the {@code <a>} start tag node
+   * @return {@code "["} to open a Markdown link for an absolute {@code href}, or an empty
+   *     string otherwise
+   */
   private String buildHtmlAnchor(StartElementTree tag) {
     for (DocTree child : tag.getAttributes()) {
       if (!(child instanceof AttributeTree attr)) continue;
@@ -315,9 +406,16 @@ public final class InlineTagRenderer {
     return "";
   }
 
-  // Converts an unrecognized HTML start tag to Markdown via flexmark.
-  // getAttributes() returns List<? extends DocTree>; only AttributeTree nodes carry
-  // attribute data, so other node kinds (e.g., ErroneousTree) are skipped.
+  /**
+   * Converts an unrecognized HTML start tag to Markdown with flexmark.
+   *
+   * <p>{@code getAttributes()} returns {@code List<? extends DocTree>}; only
+   * {@link AttributeTree} nodes carry attribute data, so other node kinds (for example an
+   * erroneous tree) are skipped.
+   *
+   * @param tag the unrecognized HTML start tag node
+   * @return the converted Markdown, never {@code null}
+   */
   private String convertUnknownTag(StartElementTree tag) {
     StringBuilder html = new StringBuilder("<").append(tag.getName());
     for (DocTree child : tag.getAttributes()) {
@@ -339,8 +437,14 @@ public final class InlineTagRenderer {
     return htmlConverter.convert(html.toString()).strip();
   }
 
-  // Resolves a Javadoc reference signature to a relative Markdown URL, or returns
-  // null if the target is not a known generated page.
+  /**
+   * Resolves a Javadoc reference signature to a relative Markdown URL.
+   *
+   * @param sig the reference signature (for example {@code "com.example.Foo#bar(int)"} or
+   *     {@code "#bar"})
+   * @return the relative Markdown URL, or {@code null} when the target is not a known
+   *     generated page or its member is not rendered
+   */
   private String resolveUrl(String sig) {
     if (elements == null || knownQualifiedNames == null || currentType == null) return null;
 
@@ -349,6 +453,8 @@ public final class InlineTagRenderer {
       String memberSig = sig.substring(1);
       Element member = findMember(memberSig);
       if (member == null) return null;
+      // Private members are not rendered and have no page anchor; degrade to a code span.
+      if (!isMemberVisible(member)) return null;
       String anchor = elementToAnchor(member);
       return anchor != null ? "#" + anchor : null;
     }
@@ -369,6 +475,8 @@ public final class InlineTagRenderer {
       if (memberRef == null) return null;
       Element member = findMember(memberRef);
       if (member == null) return null;
+      // Private members are not rendered and have no page anchor; degrade to a code span.
+      if (!isMemberVisible(member)) return null;
       String anchor = elementToAnchor(member);
       return anchor != null ? "#" + anchor : null;
     }
@@ -381,6 +489,8 @@ public final class InlineTagRenderer {
       String anchor = null;
       if (targetType != null) {
         Element member = findMemberIn(targetType, memberRef);
+        // Only link to the member if it will actually be rendered on the target page.
+        if (member != null && !isMemberVisible(member)) member = null;
         if (member != null) anchor = elementToAnchor(member);
       }
       return anchor != null ? relPath + "#" + anchor : relPath;
@@ -388,8 +498,13 @@ public final class InlineTagRenderer {
     return relPath;
   }
 
-  // Resolves a simple or qualified class name to a fully qualified name
-  // that is present in the set of known generated pages.
+  /**
+   * Resolves a simple or qualified class name to a fully qualified name that is present in
+   * the set of known generated pages.
+   *
+   * @param classRef the class reference, either fully qualified or a simple name
+   * @return the matching fully qualified name, or {@code null} when there is no unique match
+   */
   private String resolveToQualifiedName(String classRef) {
     if (knownQualifiedNames.contains(classRef)) return classRef;
     // Simple name: search for a unique match in the known set.
@@ -400,10 +515,17 @@ public final class InlineTagRenderer {
     return matches.size() == 1 ? matches.get(0) : null;
   }
 
-  // Computes the relative Markdown path from the current class's file to the target's file.
-  // Both arguments are fully qualified class names (e.g. "me.example.Foo").
-  // The ".md" extension is included so Docusaurus resolves the link as a doc reference
-  // rather than a bare HTML URL, which would 404 on a static site.
+  /**
+   * Computes the relative Markdown path from the current class's file to the target's file.
+   *
+   * <p>The {@code .md} extension is included so Docusaurus resolves the link as a doc
+   * reference rather than a bare HTML URL, which would 404 on a static site.
+   *
+   * @param currentQual the fully qualified name of the current class (for example
+   *     {@code "me.example.Foo"})
+   * @param targetQual the fully qualified name of the target class
+   * @return the relative path to the target's {@code .md} file, using forward slashes
+   */
   private static String computeRelPath(String currentQual, String targetQual) {
     Path currentDir = Path.of(currentQual.replace('.', '/')).getParent();
     if (currentDir == null) currentDir = Path.of(".");
@@ -413,13 +535,24 @@ public final class InlineTagRenderer {
     return rel.startsWith("..") ? rel : "./" + rel;
   }
 
-  // Finds the first member (method, constructor, or field) of the current type whose
-  // simple name matches the leading name portion of the reference signature.
+  /**
+   * Finds the first member of the current type whose simple name matches the leading name
+   * portion of the reference signature.
+   *
+   * @param memberSig the member reference (for example {@code "bar"} or {@code "bar(int)"})
+   * @return the matching member, or {@code null} when none matches
+   */
   private Element findMember(String memberSig) {
     return findMemberIn(currentType, memberSig);
   }
 
-  // Finds the first member of the given type whose simple name matches the reference.
+  /**
+   * Finds the first member of the given type whose simple name matches the reference.
+   *
+   * @param type the type to search
+   * @param memberSig the member reference (for example {@code "bar"} or {@code "bar(int)"})
+   * @return the matching member, or {@code null} when none matches
+   */
   private static Element findMemberIn(TypeElement type, String memberSig) {
     int paren = memberSig.indexOf('(');
     String name = (paren >= 0 ? memberSig.substring(0, paren) : memberSig).trim();
@@ -429,9 +562,33 @@ public final class InlineTagRenderer {
     return null;
   }
 
-  // Converts an element to the Docusaurus anchor that would be generated for its
-  // section heading, using the same github-slugger rules Docusaurus applies.
-  // The heading text must exactly mirror what MarkdownRenderer writes into the ### heading.
+  /**
+   * Returns whether a member will actually be rendered and therefore has a page anchor.
+   *
+   * <p>Private and package-private members are not rendered unless {@code includePrivate}
+   * is {@code true}.
+   *
+   * @param member the member to test
+   * @return {@code true} when the member is rendered and has an anchor
+   */
+  private boolean isMemberVisible(Element member) {
+    if (includePrivate) return true;
+    Set<Modifier> mods = member.getModifiers();
+    return mods.contains(Modifier.PUBLIC) || mods.contains(Modifier.PROTECTED);
+  }
+
+  /**
+   * Converts an element to the Docusaurus anchor that would be generated for its section
+   * heading.
+   *
+   * <p>The signature comes from {@link Signatures}, the single source of truth that
+   * {@code MarkdownRenderer} also uses to write the heading, so the computed anchor always
+   * matches the heading text.
+   *
+   * @param el the member element to convert
+   * @return the anchor slug, or {@code null} when {@code el} is not a method, constructor,
+   *     or field
+   */
   private String elementToAnchor(Element el) {
     String heading;
     if (el instanceof ExecutableElement exec) {
@@ -439,75 +596,26 @@ public final class InlineTagRenderer {
       String ctorName = isCtor
           ? exec.getEnclosingElement().getSimpleName().toString()
           : null;
-      heading = buildHeadingSig(exec, ctorName);
+      heading = Signatures.methodSignature(exec, ctorName);
     } else if (el instanceof VariableElement var) {
-      // Mirror appendField(): modifiers + type + name [+ " = " + constant].
-      String mods = buildModifierPrefix(var);
-      heading = (mods.isEmpty() ? "" : mods + " ")
-          + simplifyType(var.asType().toString()) + " " + var.getSimpleName();
-      Object val = var.getConstantValue();
-      if (val != null && elements != null) {
-        heading += " = " + elements.getConstantExpression(val);
-      }
+      heading = Signatures.fieldSignature(var, elements);
     } else {
       return null;
     }
     return slugify(heading);
   }
 
-  // Builds the method/constructor signature string that MarkdownRenderer uses as the
-  // section heading. Must mirror MarkdownRenderer.buildSignature() exactly,
-  // including the modifier prefix added when modifiers were introduced.
-  private static String buildHeadingSig(ExecutableElement exec, String ctorName) {
-    StringBuilder sig = new StringBuilder();
-    String mods = buildModifierPrefix(exec);
-    if (!mods.isEmpty()) {
-      sig.append(mods).append(" ");
-    }
-    if (ctorName == null) {
-      sig.append(simplifyType(exec.getReturnType().toString())).append(" ");
-    }
-    sig.append(ctorName != null ? ctorName : exec.getSimpleName()).append("(");
-    List<? extends VariableElement> params = exec.getParameters();
-    for (int i = 0; i < params.size(); i++) {
-      if (i > 0) sig.append(", ");
-      VariableElement p = params.get(i);
-      boolean isLastVararg = exec.isVarArgs() && i == params.size() - 1;
-      String typeName = simplifyType(p.asType().toString());
-      if (isLastVararg && typeName.endsWith("[]")) {
-        typeName = typeName.substring(0, typeName.length() - 2) + "...";
-      }
-      sig.append(typeName).append(" ").append(p.getSimpleName());
-    }
-    sig.append(")");
-    return sig.toString();
-  }
-
-  // Returns a space-separated modifier string in canonical Java order, omitting "abstract"
-  // because it is implied by the enclosing type. Must stay identical to the equivalent
-  // helper in MarkdownRenderer so that anchor slugs match section headings.
-  private static String buildModifierPrefix(Element e) {
-    return e.getModifiers().stream()
-        .filter(m -> m != Modifier.ABSTRACT)
-        .sorted()
-        .map(Modifier::toString)
-        .collect(Collectors.joining(" "));
-  }
-
-  // Produces the Docusaurus anchor ID for a heading string, matching github-slugger v1:
-  // lowercase, replace each space individually with a hyphen, then strip any remaining
-  // non-word (non-[a-zA-Z0-9_]) and non-hyphen characters. Underscores are preserved.
+  /**
+   * Produces the Docusaurus anchor ID for a heading string, matching github-slugger v1:
+   * lowercase, replace each space individually with a hyphen, then strip any remaining
+   * non-word (non-{@code [a-zA-Z0-9_]}) and non-hyphen character. Underscores are preserved.
+   *
+   * @param heading the heading text to slugify
+   * @return the anchor slug
+   */
   private static String slugify(String heading) {
     return heading.toLowerCase()
         .replace(" ", "-")
         .replaceAll("[^\\w-]", "");
-  }
-
-  // Strips package and enclosing-class prefixes, then removes type-use annotations.
-  // Must stay identical to MarkdownRenderer.simplifyType() so anchor slugs match.
-  private static String simplifyType(String typeName) {
-    String noPrefix = typeName.replaceAll(
-        "(?<![A-Za-z0-9_$])([A-Za-z][A-Za-z0-9_$]*\\.)+([A-Z])", "$2");
-    return noPrefix.replaceAll("@[A-Za-z][A-Za-z0-9_]*(\\([^)]*\\))?\\s*", "").trim();
   }
 }

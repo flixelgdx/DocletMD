@@ -1,4 +1,4 @@
-package me.stringdotjar.docletmd;
+package org.flixelgdx;
 
 import java.util.List;
 import org.gradle.api.Plugin;
@@ -22,7 +22,7 @@ import org.gradle.api.tasks.SourceSet;
  * <pre>{@code
  * plugins {
  *     id 'java'
- *     id 'me.stringdotjar.docletmd'
+ *     id 'org.flixelgdx.docletmd'
  * }
  *
  * docletmd {
@@ -63,7 +63,7 @@ public final class DocletMDPlugin implements Plugin<Project> {
       task.getAdditionalArgs().set(ext.getAdditionalArgs());
     });
 
-    // When the java plugin is also present, a wire source sets and classpath automatically.
+    // When the java plugin is also present, wire source sets and classpath automatically.
     project.getPluginManager().withPlugin("java", __ -> {
       JavaPluginExtension javaExt = project.getExtensions().getByType(JavaPluginExtension.class);
       SourceSet main = javaExt.getSourceSets().getByName(SourceSet.MAIN_SOURCE_SET_NAME);

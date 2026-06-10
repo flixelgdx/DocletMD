@@ -1,4 +1,4 @@
-package me.stringdotjar.docletmd;
+package org.flixelgdx;
 
 import org.gradle.api.file.DirectoryProperty;
 import org.gradle.api.provider.ListProperty;
@@ -59,7 +59,7 @@ public abstract class DocletMDExtension {
    * Extra flags appended verbatim to the documentation tool invocation.
    *
    * <p>Use this for javadoc-level flags that cannot be expressed through the standard
-   * extension properties -- for example {@code --patch-module} to merge a split package
+   * extension properties. For example, {@code --patch-module} merges a split package
    * in a JPMS build. These are passed directly after the DocletMD options, so they can
    * override or augment the tool's module resolution.
    *

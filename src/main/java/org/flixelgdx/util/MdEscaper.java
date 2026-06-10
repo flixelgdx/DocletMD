@@ -1,4 +1,4 @@
-package me.stringdotjar.docletmd.util;
+package org.flixelgdx.util;
 
 /**
  * Escapes characters that would break MDX rendering in Docusaurus.
@@ -11,7 +11,7 @@ package me.stringdotjar.docletmd.util;
  * <p>Example usage:
  * <pre>{@code
  * String safe = MdEscaper.escapeMdx("Use Map<String, Integer> for this.");
- * // safe => "Use Map&lt;String, Integer&gt; for this."
+ * // safe => "Use Map<String, Integer> for this."
  * }</pre>
  */
 public final class MdEscaper {
@@ -53,6 +53,9 @@ public final class MdEscaper {
     if (text == null || text.isEmpty()) {
       return text;
     }
-    return text.replace("|", "\\|").replace("\r\n", " ").replace("\n", " ").replace("\r", "");
+    return text.replace("|", "\\|")
+      .replace("\r\n", " ")
+      .replace("\n", " ")
+      .replace("\r", "");
   }
 }

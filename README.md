@@ -6,32 +6,22 @@ Each public class, interface, enum, and record gets its own `.md` file, organize
 
 ## Requirements
 
-- Java 21 or later
+- A full JDK 17 or later running your Gradle build (not a JRE). The plugin invokes the Java documentation tool, which only ships with a JDK.
 - Gradle 8 or later
 
 ## Installation
 
-DocletMD is published via [JitPack](https://jitpack.io). Add the JitPack repository and a resolution rule to your `settings.gradle` (or `settings.gradle.kts`) so Gradle knows where to find the plugin:
+DocletMD is published to [Maven Central](https://central.sonatype.com/artifact/org.flixelgdx/docletmd). Add `mavenCentral()` to the plugin repositories in your `settings.gradle` (or `settings.gradle.kts`) so Gradle can resolve the plugin:
 
 **`settings.gradle`**
 ```groovy
 pluginManagement {
     repositories {
-        maven { url 'https://jitpack.io' }
+        mavenCentral()
         gradlePluginPortal()
-    }
-    resolutionStrategy {
-        eachPlugin {
-            if (requested.id.id == 'me.stringdotjar.docletmd') {
-                useModule('com.github.flixelgdx.DocletMD:docletmd:0.1.1')
-            }
-        }
     }
 }
 ```
-
-> Replace `0.1.1` with any released tag from the [releases page](https://github.com/flixelgdx/DocletMD/releases),
-> or use a full commit hash for a snapshot build.
 
 Then apply the plugin alongside the `java` plugin in your `build.gradle`:
 
@@ -39,9 +29,11 @@ Then apply the plugin alongside the `java` plugin in your `build.gradle`:
 ```groovy
 plugins {
     id 'java'
-    id 'me.stringdotjar.docletmd' version '0.1.1'
+    id 'org.flixelgdx.docletmd' version '0.2.0'
 }
 ```
+
+> Replace `0.2.0` with any released version from the [releases page](https://github.com/flixelgdx/DocletMD/releases).
 
 ### Alternative: `buildscript` block
 
@@ -51,15 +43,15 @@ If you prefer the legacy approach, skip the `pluginManagement` block and use a `
 ```groovy
 buildscript {
     repositories {
-        maven { url 'https://jitpack.io' }
+        mavenCentral()
     }
     dependencies {
-        classpath 'com.github.flixelgdx.DocletMD:docletmd:0.1.1'
+        classpath 'org.flixelgdx:docletmd:0.2.0'
     }
 }
 
 apply plugin: 'java'
-apply plugin: 'me.stringdotjar.docletmd'
+apply plugin: 'org.flixelgdx.docletmd'
 ```
 
 ## Configuration
@@ -79,6 +71,34 @@ docletmd {
     // Set to true to skip members that have no Javadoc comment at all.
     // Default: false
     skipEmptyDocs = false
+
+    // Extra flags appended verbatim to the documentation tool invocation.
+    // Use these for javadoc-level flags that the typed properties above do not cover.
+    // Default: [] (empty)
+    additionalArgs = []
+}
+```
+
+### Source links
+
+To add a "View source" link to the header of each generated page, pass the `-sourceBase` doclet
+option through `additionalArgs`. The value is a base URL that is joined with each class file path
+to build the link:
+
+```groovy
+docletmd {
+    additionalArgs = ['-sourceBase', 'https://github.com/your/repo/blob/main/src/main/java/']
+}
+```
+
+### Split packages (JPMS)
+
+For a modular project where a dependency splits one of your packages, pass `--patch-module`
+through `additionalArgs` so the documentation tool can merge the split:
+
+```groovy
+docletmd {
+    additionalArgs = ['--patch-module', 'your.module=/path/to/extra.jar']
 }
 ```
 
@@ -105,18 +125,22 @@ build/docletmd/
 
 Every file contains:
 
-- A YAML frontmatter block with `title` and `sidebar_label` (compatible with Docusaurus).
-- An H1 heading with the class name.
+- A YAML frontmatter block with `title`, `sidebar_label`, `toc_max_heading_level`, and `hide_title` (compatible with Docusaurus).
+- An H1 heading with the class name. When source links are enabled, the heading and a "View source" button share a `dm-class-header` flex row.
+- A kind label (for example *`class`* or *`record`*).
 - The full qualified name as an inline code span.
+- A colorized type declaration line, emitted as HTML spans (`dm-kw`, `dm-fn`, `dm-type`, `dm-param`) that a stylesheet can color.
 - An optional `:::caution Deprecated` admonition when the class is deprecated.
 - The Javadoc description, including inline `{@link}` and `{@code}` tags.
 - `@since` and `@see` meta-tags.
-- Sections for **Constructors**, **Fields**, and **Methods**, each with:
+- `{@inheritDoc}` expansion: a method that uses `{@inheritDoc}` in its description, a `@param`, the `@return`, or a `@throws` copies the matching text from the method it overrides. The doclet searches the superclass chain first and then implemented interfaces, and resolves the tag across several levels of inheritance.
+- Sections for **Constructors**, **Fields**, and **Methods**, each member rendered as an H3 entry with:
   - The full signature (modifiers, return type, parameters, constant value for `final` fields).
   - The Javadoc description.
   - Parameter table (`@param` tags).
   - Return value (`@return` tag).
   - Throws table (`@throws` / `@exception` tags).
+- Public and protected nested types, each rendered inline as its own H2 section with the same structure.
 
 ## Member-type markers
 
@@ -133,7 +157,7 @@ Every member heading (field, constructor, method) is preceded by an HTML comment
 
 `field:constant` is emitted for `static final` fields that have a compile-time constant value (primitives and `String`).
 
-These comments are **invisible** in all standard Markdown renderers and Docusaurus itself, so generated pages look correct with or without any additional tooling. A Docusaurus remark plugin can read the markers and apply styling -- for example, color-coding headings by member kind -- without modifying the plugin or the generated files.
+These comments are **invisible** in all standard Markdown renderers and Docusaurus itself, so generated pages look correct with or without any additional tooling. A Docusaurus remark plugin can read the markers and apply styling (for example, color-coding headings by member kind) without modifying the plugin or the generated files.
 
 ### Using the markers in a remark plugin
 

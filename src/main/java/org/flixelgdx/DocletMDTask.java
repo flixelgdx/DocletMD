@@ -1,6 +1,6 @@
-package me.stringdotjar.docletmd;
+package org.flixelgdx;
 
-import me.stringdotjar.docletmd.doclet.DocletMDDoclet;
+import org.flixelgdx.doclet.DocletMDDoclet;
 import java.io.File;
 import java.io.PrintWriter;
 import java.io.StringWriter;
@@ -152,7 +152,7 @@ public abstract class DocletMDTask extends DefaultTask {
       if (!classpathFiles.isEmpty()) {
         if (isModular) {
           // When --patch-module is used, the patched JARs must NOT also appear as independent
-          // modules on the module path -- that would cause a split-package error before the
+          // modules on the module path; that would cause a split-package error before the
           // patch is applied. Parse additionalArgs to find any patched paths and exclude them.
           Set<String> patchedPaths = patchedModulePaths(getAdditionalArgs().get());
           List<File> modulePath = classpathFiles.stream()
@@ -192,7 +192,12 @@ public abstract class DocletMDTask extends DefaultTask {
         getOutputDir().get().getAsFile());
   }
 
-  // Builds the flat list of options passed to the documentation tool.
+  /**
+   * Builds the flat list of options passed to the documentation tool.
+   *
+   * @return the option list, beginning with {@code -outputDir} and ending with any
+   *     additional arguments
+   */
   private List<String> buildOptions() {
     List<String> opts = new ArrayList<>();
     opts.add("-outputDir");
@@ -207,8 +212,15 @@ public abstract class DocletMDTask extends DefaultTask {
     return opts;
   }
 
-  // Parses --patch-module args and returns all absolute file paths that are being patched.
-  // These must be excluded from MODULE_PATH so they don't also appear as separate modules.
+  /**
+   * Parses {@code --patch-module} arguments and returns the absolute file paths being patched.
+   *
+   * <p>These paths must be excluded from {@code MODULE_PATH} so they do not also appear as
+   * separate modules, which would cause a split-package error.
+   *
+   * @param args the additional arguments to scan for {@code --patch-module} entries
+   * @return the set of absolute paths being patched, possibly empty
+   */
   private static Set<String> patchedModulePaths(List<String> args) {
     Set<String> paths = new HashSet<>();
     for (int i = 0; i < args.size() - 1; i++) {
@@ -223,7 +235,12 @@ public abstract class DocletMDTask extends DefaultTask {
     return paths;
   }
 
-  // Recursively collects every .java file under the configured source directories.
+  /**
+   * Recursively collects every {@code .java} file under the configured source directories.
+   *
+   * @return the list of Java source files to document, possibly empty
+   * @throws IOException if a source directory cannot be walked
+   */
   private List<File> collectSourceFiles() throws IOException {
     List<File> files = new ArrayList<>();
     for (File dir : getSourceDirs().getFiles()) {

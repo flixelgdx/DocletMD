@@ -17,7 +17,7 @@ Before implementing anything (planning or coding):
 1. Ask yourself whether the requested design or refactor is actually good for the plugin.
 2. If it could hurt the plugin (or people's projects), breaks invariants, or there is clearly a better path, **stop before editing files or running commands**.
 3. Explain why (pros and cons), suggest better alternatives, and ask whether the user still wants to proceed.
-4. If they confirm after that discussion, proceed as requested.
+4. If they confirm after that discussion, proceed as requested. 
 
 ---
 

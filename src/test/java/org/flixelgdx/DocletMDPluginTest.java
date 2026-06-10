@@ -1,4 +1,4 @@
-package me.stringdotjar.docletmd;
+package org.flixelgdx;
 
 import java.io.File;
 import java.nio.file.Files;
@@ -26,7 +26,7 @@ class DocletMDPluginTest {
     writeFile("build.gradle", """
         plugins {
             id 'java'
-            id 'me.stringdotjar.docletmd'
+            id 'org.flixelgdx.docletmd'
         }
         java {
             toolchain { languageVersion = JavaLanguageVersion.of(21) }
@@ -88,7 +88,7 @@ class DocletMDPluginTest {
     writeFile("build.gradle", """
         plugins {
             id 'java'
-            id 'me.stringdotjar.docletmd'
+            id 'org.flixelgdx.docletmd'
         }
         java {
             toolchain { languageVersion = JavaLanguageVersion.of(21) }
@@ -122,6 +122,75 @@ class DocletMDPluginTest {
   }
 
   /**
+   * Verifies that {@code {@inheritDoc}} in a method body, {@code @param}, and
+   * {@code @return} is expanded with the overridden method's documentation.
+   */
+  @Test
+  void generateDocletMD_inheritDoc_copiesParentJavadoc() throws Exception {
+    writeFile("settings.gradle", "rootProject.name = 'test-project'\n");
+    writeFile("build.gradle", """
+        plugins {
+            id 'java'
+            id 'org.flixelgdx.docletmd'
+        }
+        java {
+            toolchain { languageVersion = JavaLanguageVersion.of(21) }
+        }
+        """);
+
+    Path srcDir = tempDir.toPath().resolve("src/main/java/com/example");
+    Files.createDirectories(srcDir);
+    Files.writeString(srcDir.resolve("Shape.java"), """
+        package com.example;
+
+        /** A geometric shape. */
+        public interface Shape {
+
+            /**
+             * Scales the shape by a factor.
+             *
+             * @param factor the multiplier applied to every dimension
+             * @return the resulting area after scaling
+             */
+            double scale(double factor);
+        }
+        """);
+    Files.writeString(srcDir.resolve("Square.java"), """
+        package com.example;
+
+        /** A four-sided shape. */
+        public class Square implements Shape {
+
+            /**
+             * {@inheritDoc}
+             *
+             * @param factor {@inheritDoc}
+             * @return {@inheritDoc}
+             */
+            @Override
+            public double scale(double factor) {
+                return factor * factor;
+            }
+        }
+        """);
+
+    BuildResult result = runner("generateDocletMD").build();
+
+    assertEquals(TaskOutcome.SUCCESS, result.task(":generateDocletMD").getOutcome());
+
+    Path mdFile = tempDir.toPath().resolve("build/docletmd/com/example/Square.md");
+    assertTrue(mdFile.toFile().exists(), "Expected Markdown file not found: " + mdFile);
+
+    String content = Files.readString(mdFile);
+    assertTrue(content.contains("Scales the shape by a factor"),
+        "Inherited body description was not copied from the overridden method");
+    assertTrue(content.contains("the multiplier applied to every dimension"),
+        "Inherited @param description was not copied");
+    assertTrue(content.contains("the resulting area after scaling"),
+        "Inherited @return description was not copied");
+  }
+
+  /**
    * Verifies that the task produces no output (and does not fail) when there are
    * no Java source files in the configured source directories.
    */
@@ -131,14 +200,14 @@ class DocletMDPluginTest {
     writeFile("build.gradle", """
         plugins {
             id 'java'
-            id 'me.stringdotjar.docletmd'
+            id 'org.flixelgdx.docletmd'
         }
         java {
             toolchain { languageVersion = JavaLanguageVersion.of(21) }
         }
         """);
 
-    // No source files created -- src/main/java does not exist
+    // No source files are created here; src/main/java does not exist.
 
     BuildResult result = runner("generateDocletMD").build();
 
